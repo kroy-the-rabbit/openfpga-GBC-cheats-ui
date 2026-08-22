@@ -3,6 +3,12 @@
 Three panes, left to right: systems on the card, games in the selected system,
 cheats for the selected game. The tick state of the cheat list is exactly what
 will be written, and what is already on the card starts ticked.
+
+Each cheat also shows how the core makes it take effect, because the two ways
+do not behave the same. A GameShark code is written into RAM once a frame, so
+the game's own logic still sees the value; a Game Genie code overrides the
+CPU's read, which is right for a ROM patch and wrong for anything the game
+clamps. See docs/CHEATS.md.
 """
 from __future__ import annotations
 
@@ -69,15 +75,17 @@ class App(ttk.Frame):
                                      command=self.change_source, state="disabled")
         self.source_btn.grid(row=0, column=1)
 
-        cols = ("desc", "codes")
+        cols = ("desc", "how", "codes")
         self.cheats = ttk.Treeview(right, columns=cols, show="tree headings",
                                    selectmode="none")
         self.cheats.heading("#0", text="")
         self.cheats.heading("desc", text="Cheat")
+        self.cheats.heading("how", text="Applied")
         self.cheats.heading("codes", text="Addresses")
         self.cheats.column("#0", width=34, stretch=False, anchor="center")
-        self.cheats.column("desc", width=250)
-        self.cheats.column("codes", width=170)
+        self.cheats.column("desc", width=230)
+        self.cheats.column("how", width=64, stretch=False, anchor="center")
+        self.cheats.column("codes", width=160)
         self.cheats.grid(row=1, column=0, sticky="nsew")
         sb = ttk.Scrollbar(right, orient="vertical", command=self.cheats.yview)
         sb.grid(row=1, column=1, sticky="ns")
@@ -86,8 +94,14 @@ class App(ttk.Frame):
         self.cheats.tag_configure("dead", foreground="#999")
         self.cheats.bind("<Button-1>", self.on_click)
 
+        ttk.Label(right, foreground="#666", text=(
+            "Applied: written = the value is put into RAM each frame, so the "
+            "game can still clamp it.  patched = the CPU's read is overridden."
+        ), wraplength=520).grid(row=2, column=0, columnspan=2, sticky="w",
+                                pady=(4, 0))
+
         bottom = ttk.Frame(right)
-        bottom.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        bottom.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         bottom.columnconfigure(0, weight=1)
         self.status = ttk.Label(bottom, text="")
         self.status.grid(row=0, column=0, sticky="w")
@@ -203,7 +217,8 @@ class App(ttk.Frame):
             desc = e.desc + ("   (already installed)" if not e.in_library else "")
             self.cheats.insert("", "end", iid=str(i),
                                text=TICK if e.enabled else UNTICK,
-                               values=(desc, e.summary or "no usable code"),
+                               values=(desc, e.applied,
+                                       e.summary or "no usable code"),
                                tags=tuple(tags))
         self.update_status()
 
@@ -212,7 +227,10 @@ class App(ttk.Frame):
         if v is None:
             return
         codes = sum(len(e.group.codes) for e in v.enabled)
+        written, patched = v.applied_counts
         msg = f"{len(v.enabled)} of {len(v.entries)} on, {codes} codes"
+        if written or patched:
+            msg += f" ({written} written, {patched} patched)"
         problems = v.problems
         if problems:
             msg += "   " + "; ".join(problems)

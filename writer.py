@@ -12,11 +12,8 @@ from __future__ import annotations
 
 import os
 import shutil
-import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__))), "cheats"))
-import chtparse  # noqa: E402
+import chtparse   # tools/cheats, put on the path by __main__.py
 
 MAX_CHEATS = chtparse.MAX_GROUPS
 MAX_CODES = chtparse.MAX_CODES

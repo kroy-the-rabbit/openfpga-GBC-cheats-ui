@@ -1,4 +1,12 @@
-"""Headless view of what the GUI would show, for checking without a screen."""
+"""Headless view of what the GUI would show, for checking without a screen.
+
+    tools/cheatgui/run.sh --list           every game
+    tools/cheatgui/run.sh --list zelda     filtered by name
+    tools/cheatgui/run.sh --list zelda -v  and each cheat, with how it applies
+
+The `Nw/Mp` column counts codes written into RAM against codes applied as a
+CPU read override.
+"""
 from __future__ import annotations
 
 import os
@@ -8,6 +16,8 @@ import model
 
 
 def main(argv: list[str]) -> int:
+    # -v also lists each enabled cheat and how the core applies it
+    verbose = "-v" in argv
     cards = card_mod.find_cards()
     if not cards:
         print("no Pocket card found (needs Cores/ and Platforms/)")
@@ -22,6 +32,11 @@ def main(argv: list[str]) -> int:
                 continue
             v = model.load(g)
             src = os.path.basename(v.source) if v.source else "NO MATCH"
+            written, patched = v.applied_counts
+            how = f"{written}w/{patched}p" if (written or patched) else "-"
             print(f"  {g.name[:52]:<54} {len(v.enabled):>2} on / "
-                  f"{len(v.entries):>3} avail   {src[:46]}")
+                  f"{len(v.entries):>3} avail  {how:>8}  {src[:44]}")
+            if verbose:
+                for e in v.enabled:
+                    print(f"        {e.applied:<8} {e.desc[:44]:<46} {e.summary}")
     return 0

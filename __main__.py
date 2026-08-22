@@ -2,7 +2,13 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+# The GUI's own modules, then tools/cheats for chtparse and ggdecode. The
+# parser there is the reference model the RTL is checked against, so the GUI
+# reads cheat files through exactly the code the core is verified to match.
+sys.path.insert(0, HERE)
+sys.path.insert(1, os.path.join(os.path.dirname(HERE), "cheats"))
 
 
 def main() -> int:

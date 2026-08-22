@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+import chtparse
 import match
 import prefs
 import writer
@@ -38,6 +39,24 @@ class Entry:
         """Nothing decoded: the libretro entry was a XX-style modifier."""
         return not self.group.codes
 
+    @property
+    def applied(self) -> str:
+        """How the core makes this cheat take effect, for the whole group.
+
+        The two mechanisms behave differently enough to be worth showing. A
+        written cheat lets the game's own logic clamp the value; an overridden
+        read does not, which is why an infinite health code applied that way
+        paints a full row of hearts instead of a full heart meter.
+        """
+        kinds = {chtparse.applied_by(c) for c in self.group.codes}
+        if not kinds:
+            return ""
+        if kinds == {"poke"}:
+            return "written"
+        if kinds == {"patch"}:
+            return "patched"
+        return "mixed"
+
 
 @dataclass
 class GameView:
@@ -49,6 +68,18 @@ class GameView:
     @property
     def enabled(self) -> list[Entry]:
         return [e for e in self.entries if e.enabled]
+
+    @property
+    def applied_counts(self) -> tuple[int, int]:
+        """(codes written into RAM, codes applied as a read override)."""
+        written = patched = 0
+        for e in self.enabled:
+            for c in e.group.codes:
+                if chtparse.applied_by(c) == "poke":
+                    written += 1
+                else:
+                    patched += 1
+        return written, patched
 
     @property
     def problems(self) -> list[str]:

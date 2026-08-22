@@ -101,8 +101,15 @@ def looks_like_card(path: str) -> bool:
 
 
 def find_cards() -> list[Card]:
-    """Mounted removable volumes that look like a Pocket card."""
+    """Mounted removable volumes that look like a Pocket card.
+
+    POCKET_CARD overrides the search with an explicit path, for a card that
+    mounts somewhere unusual and for testing against a fixture tree.
+    """
     cards = []
+    forced = os.environ.get("POCKET_CARD")
+    if forced:
+        return [Card(forced, "POCKET_CARD")] if looks_like_card(forced) else []
     try:
         out = subprocess.run(["findmnt", "-rn", "-o", "TARGET,LABEL"],
                              capture_output=True, text=True, check=True).stdout
