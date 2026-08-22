@@ -44,9 +44,9 @@ class Entry:
         """How the core makes this cheat take effect, for the whole group.
 
         The two mechanisms behave differently enough to be worth showing. A
-        written cheat lets the game's own logic clamp the value; an overridden
-        read does not, which is why an infinite health code applied that way
-        paints a full row of hearts instead of a full heart meter.
+        written cheat puts the value where the game finds it by any route; an
+        overridden read only satisfies reads the core can see, so a DMA copy or
+        a cached value misses it.
         """
         kinds = {chtparse.applied_by(c) for c in self.group.codes}
         if not kinds:

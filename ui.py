@@ -6,9 +6,8 @@ will be written, and what is already on the card starts ticked.
 
 Each cheat also shows how the core makes it take effect, because the two ways
 do not behave the same. A GameShark code is written into RAM once a frame, so
-the game's own logic still sees the value; a Game Genie code overrides the
-CPU's read, which is right for a ROM patch and wrong for anything the game
-clamps. See docs/CHEATS.md.
+the value is really there; a Game Genie code overrides the CPU's read, which is
+what a ROM patch needs. See docs/CHEATS.md.
 """
 from __future__ import annotations
 
