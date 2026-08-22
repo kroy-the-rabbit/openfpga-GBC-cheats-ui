@@ -19,6 +19,12 @@ SUPPORTED = {
 }
 ROM_EXT = {".gb", ".gbc"}
 
+# Folders skipped when listing games. Romhacks are usually pre-patched variants
+# of a ROM that is already in the list, and they do not match anything in the
+# cheat database, so they only add noise. Nothing is hidden from the card, only
+# from this tool.
+SKIP_DIRS = {"romhacks"}
+
 
 @dataclass
 class Game:
@@ -77,7 +83,8 @@ class Card:
     def games(self, pid: str) -> list[Game]:
         adir = os.path.join(self.root, "Assets", pid)
         found: list[Game] = []
-        for dirpath, _, files in os.walk(adir):
+        for dirpath, dirs, files in os.walk(adir):
+            dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS]
             for f in files:
                 if os.path.splitext(f)[1].lower() in ROM_EXT:
                     found.append(Game(os.path.join(dirpath, f), pid))
