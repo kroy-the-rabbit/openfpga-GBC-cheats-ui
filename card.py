@@ -111,8 +111,12 @@ def find_cards() -> list[Card]:
     if forced:
         return [Card(forced, "POCKET_CARD")] if looks_like_card(forced) else []
     try:
+        # Timeout on purpose. This runs on the Tk thread, and findmnt can block
+        # on an unresponsive mount; without it the whole window hangs with
+        # nothing on screen to say why.
         out = subprocess.run(["findmnt", "-rn", "-o", "TARGET,LABEL"],
-                             capture_output=True, text=True, check=True).stdout
+                             capture_output=True, text=True, check=True,
+                             timeout=5).stdout
     except Exception:                                        # noqa: BLE001
         return cards
     for line in out.splitlines():

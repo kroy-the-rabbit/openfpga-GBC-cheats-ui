@@ -130,6 +130,13 @@ class App(ttk.Frame):
 
     # ----------------------------------------------------------------- cards --
     def rescan(self) -> None:
+        # Repaint before doing any of it. Scanning is normally instant, but if
+        # it ever is not, a window frozen mid-click is indistinguishable from a
+        # crash, and the user has no idea it is working.
+        self.card_label.config(text="scanning...", foreground="#666")
+        self.status.config(text="", foreground="#000")
+        self.update_idletasks()
+
         self.systems.delete(*self.systems.get_children())
         self.gamelist.delete(*self.gamelist.get_children())
         self.cheats.delete(*self.cheats.get_children())
@@ -177,10 +184,13 @@ class App(ttk.Frame):
         self.save_btn.state(["disabled"])
         self.source_btn.state(["disabled"])
         self.source_label.config(text="")
+        self.status.config(text=f"reading {len(self.games)} games...")
+        self.update_idletasks()
         for i, g in enumerate(self.games):
             n = len(model.writer.load_installed(g.cht_path))
             self.gamelist.insert("", "end", iid=str(i), text=g.name,
                                  values=(n if n else "",))
+        self.status.config(text=f"{len(self.games)} games")
 
     def on_game(self, _evt=None) -> None:
         sel = self.gamelist.selection()

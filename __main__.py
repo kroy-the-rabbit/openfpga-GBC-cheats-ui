@@ -1,6 +1,15 @@
 """Entry point: python -m cheatgui, or tools/cheatgui/run.sh"""
+import faulthandler
 import os
+import signal
 import sys
+
+# Everything this app does runs on the Tk thread, so anything that blocks looks
+# identical from outside: a window that stops repainting. `kill -USR1 <pid>`
+# prints the stack of wherever it actually is, which beats guessing.
+faulthandler.enable()
+if hasattr(signal, "SIGUSR1"):
+    faulthandler.register(signal.SIGUSR1)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
