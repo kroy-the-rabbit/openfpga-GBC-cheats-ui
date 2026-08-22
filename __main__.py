@@ -22,10 +22,26 @@ sys.path.insert(1, os.path.join(os.path.dirname(HERE), "cheats"))
 
 def main() -> int:
     if "--list" in sys.argv:
+        # Read only, so any number of these can run at once.
         import cli
         return cli.main(sys.argv[1:])
+
+    import single
+    handle, holder = single.acquire()
+    if handle is None:
+        print(f"the cheat picker is already running (pid {holder}).",
+              file=sys.stderr)
+        print("Use that window, or close it first.", file=sys.stderr)
+        return 1
+
     import ui
-    return ui.main()
+    try:
+        return ui.main()
+    finally:
+        # Explicit, so the lock goes as the window does rather than whenever
+        # the handle happens to be collected.
+        if hasattr(handle, "close"):
+            handle.close()
 
 
 if __name__ == "__main__":
