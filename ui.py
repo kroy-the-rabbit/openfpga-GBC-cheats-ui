@@ -18,6 +18,7 @@ from tkinter import messagebox, ttk
 import card as card_mod
 import library
 import model
+import work
 
 TICK, UNTICK = "☑", "☐"
 
@@ -32,6 +33,7 @@ class App(ttk.Frame):
         self.card: card_mod.Card | None = None
         self.platforms: list[card_mod.Platform] = []
         self.platform: card_mod.Platform | None = None
+        self.worker = work.Worker(master)
         self.games: list[card_mod.Game] = []
         self.view: model.GameView | None = None
 
@@ -51,7 +53,8 @@ class App(ttk.Frame):
         ttk.Label(top, text="Pocket SD card:").grid(row=0, column=0, padx=(0, 6))
         self.card_label = ttk.Label(top, text="scanning...", foreground="#666")
         self.card_label.grid(row=0, column=1, sticky="w")
-        ttk.Button(top, text="Rescan", command=self.rescan).grid(row=0, column=2)
+        self.rescan_btn = ttk.Button(top, text="Rescan", command=self.rescan)
+        self.rescan_btn.grid(row=0, column=2)
 
         self.systems = self._tree(1, 0, ("count",), {"#0": "System", "count": "ROMs"},
                                   {"#0": 130, "count": 50})
@@ -131,17 +134,12 @@ class App(ttk.Frame):
 
     # ----------------------------------------------------------------- cards --
     def rescan(self) -> None:
-        # Repaint before doing any of it. Scanning is normally instant, but if
-        # it ever is not, a window frozen mid-click is indistinguishable from a
-        # crash, and the user has no idea it is working.
-        self.card_label.config(text="scanning...", foreground="#666")
-        self.status.config(text="", foreground="#000")
-        self.update_idletasks()
-
+        """Find the card and read its games. The reading happens off-thread."""
         self.systems.delete(*self.systems.get_children())
         self.gamelist.delete(*self.gamelist.get_children())
         self.cheats.delete(*self.cheats.get_children())
         self.view = None
+        self.platforms = []
         self.save_btn.state(["disabled"])
         self.source_btn.state(["disabled"])
         self.source_label.config(text="")
@@ -151,8 +149,26 @@ class App(ttk.Frame):
             self.status.config(text="Run tools/cheats/init-db.sh to fetch it")
             return
 
+        self.card_label.config(text="scanning...", foreground="#666")
+        self.status.config(text="reading the card", foreground="#000")
+        self.rescan_btn.state(["disabled"])
+        self.worker.submit(self._scan, self._scanned, "scan")
+
+    @staticmethod
+    def _scan():
+        """Worker thread: no widgets touched here."""
         cards = card_mod.find_cards()
         if not cards:
+            return None
+        return cards, cards[0].platforms()
+
+    def _scanned(self, result, err) -> None:
+        self.rescan_btn.state(["!disabled"])
+        if err is not None:
+            self.card_label.config(text="could not read the card", foreground="#a00")
+            self.status.config(text=str(err), foreground="#a00")
+            return
+        if result is None:
             self.card = None
             self.card_label.config(
                 text="no Pocket card found (needs Cores/ and Platforms/)",
@@ -160,11 +176,12 @@ class App(ttk.Frame):
             self.status.config(text="Insert the card and press Rescan")
             return
 
+        cards, platforms = result
         self.card = cards[0]
+        self.platforms = platforms
         extra = f"  (+{len(cards) - 1} more)" if len(cards) > 1 else ""
         self.card_label.config(text=f"{self.card.root}  [{self.card.label}]{extra}",
                                foreground="#060")
-        self.platforms = self.card.platforms()
         for i, p in enumerate(self.platforms):
             self.systems.insert("", "end", iid=str(i), text=p.name,
                                 values=(len(p.games),))
@@ -186,30 +203,49 @@ class App(ttk.Frame):
         self.save_btn.state(["disabled"])
         self.source_btn.state(["disabled"])
         self.source_label.config(text="")
-        # Only the games that actually have a cheat file get opened and parsed.
-        # The rest are known to have none from the directory listing alone, so
-        # they cost nothing: no stat, no read.
-        for i, g in enumerate(self.games):
-            n = len(model.writer.load_installed(g.cht_path)) \
-                if plat.has_cheats(g) else 0
+        self.status.config(text=f"reading {len(self.games)} games...")
+        self.worker.submit(lambda: self._counts(plat), self._listed, "list")
+
+    @staticmethod
+    def _counts(plat):
+        """Worker thread: how many cheats each game has installed.
+
+        Only the games that really have a file are opened. The rest are known
+        to have none from the directory listing alone, so they cost nothing.
+        """
+        return plat, [len(model.writer.load_installed(g.cht_path))
+                      if plat.has_cheats(g) else 0 for g in plat.games]
+
+    def _listed(self, result, err) -> None:
+        if err is not None:
+            self.status.config(text=f"could not read the card: {err}",
+                               foreground="#a00")
+            return
+        plat, counts = result
+        if plat is not self.platform:        # the user moved on while we read
+            return
+        self.gamelist.delete(*self.gamelist.get_children())
+        for i, (g, n) in enumerate(zip(plat.games, counts)):
             self.gamelist.insert("", "end", iid=str(i), text=g.name,
                                  values=(n if n else "",))
-        self.status.config(text=f"{len(self.games)} games, "
-                                f"{len(plat.cheat_files)} with cheats")
+        self.status.config(text=f"{len(plat.games)} games, "
+                                f"{len(plat.cheat_files)} with cheats",
+                           foreground="#000")
 
     def on_game(self, _evt=None) -> None:
         sel = self.gamelist.selection()
         if not sel:
             return
         game = self.games[int(sel[0])]
-        self.status.config(text="loading...")
-        self.update_idletasks()
-        try:
-            self.view = model.load(game)
-        except Exception as e:                                # noqa: BLE001
-            messagebox.showerror("Cheats", f"Could not read cheats:\n{e}")
+        self.status.config(text="loading...", foreground="#000")
+        self.worker.submit(lambda: model.load(game), self._loaded, "load")
+
+    def _loaded(self, view, err) -> None:
+        if err is not None:
+            messagebox.showerror("Cheats", f"Could not read cheats:\n{err}")
             self.status.config(text="")
             return
+        self.view = view
         self.refresh_cheats()
         self.source_btn.state(["!disabled"])
         self.save_btn.state(["!disabled"])
@@ -288,13 +324,23 @@ class App(ttk.Frame):
         if problems and not messagebox.askyesno(
                 "Cheats", "\n".join(problems) + "\n\nWrite anyway?"):
             return
-        try:
-            cheats, codes = v.save()
+        def write():
+            result = v.save()
             if self.card:
-                self.card.sync()
-        except Exception as e:                                # noqa: BLE001
-            messagebox.showerror("Cheats", f"Could not write:\n{e}")
+                self.card.sync()      # can take seconds on a slow card
+            return result
+
+        self.save_btn.state(["disabled"])
+        self.status.config(text="writing to the card...", foreground="#000")
+        self.worker.submit(write, self._saved, "save")
+
+    def _saved(self, result, err) -> None:
+        self.save_btn.state(["!disabled"])
+        if err is not None:
+            messagebox.showerror("Cheats", f"Could not write:\n{err}")
+            self.status.config(text="")
             return
+        cheats, codes = result
         sel = self.gamelist.selection()
         if sel:
             self.gamelist.item(sel[0], values=(cheats if cheats else "",))
