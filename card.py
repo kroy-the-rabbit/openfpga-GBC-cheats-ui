@@ -57,6 +57,13 @@ class Platform:
     id: str
     name: str
     games: list[Game] = field(default_factory=list)
+    # Absolute paths of the .cht files found beside those ROMs, from the same
+    # directory walk. Asking the filesystem per game instead is one stat each,
+    # and on a card over USB that is slow enough to freeze the window.
+    cheat_files: frozenset[str] = frozenset()
+
+    def has_cheats(self, game: "Game") -> bool:
+        return game.cht_path in self.cheat_files
 
 
 @dataclass
@@ -70,7 +77,8 @@ class Card:
             adir = os.path.join(self.root, "Assets", pid)
             if not os.path.isdir(adir):
                 continue
-            out.append(Platform(pid, self.platform_name(pid), self.games(pid)))
+            games, chts = self.scan(pid)
+            out.append(Platform(pid, self.platform_name(pid), games, chts))
         return out
 
     def platform_name(self, pid: str) -> str:
@@ -80,16 +88,31 @@ class Card:
         except Exception:                                    # noqa: BLE001
             return pid.upper()
 
-    def games(self, pid: str) -> list[Game]:
+    def scan(self, pid: str) -> tuple[list[Game], frozenset[str]]:
+        """ROMs and the cheat files beside them, from one walk of the tree.
+
+        Both come out of the same os.walk deliberately. The directory listing
+        already names every file, so asking the filesystem again whether each
+        ROM has a .cht costs one stat per game and tells us nothing new. On a
+        card read over USB with a cold cache that is hundreds of blocking calls
+        on the UI thread, which is exactly what it looks like: a dead window.
+        """
         adir = os.path.join(self.root, "Assets", pid)
         found: list[Game] = []
+        chts: set[str] = set()
         for dirpath, dirs, files in os.walk(adir):
             dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS]
             for f in files:
-                if os.path.splitext(f)[1].lower() in ROM_EXT:
+                ext = os.path.splitext(f)[1].lower()
+                if ext in ROM_EXT:
                     found.append(Game(os.path.join(dirpath, f), pid))
+                elif ext == ".cht":
+                    chts.add(os.path.join(dirpath, f))
         found.sort(key=lambda g: g.name.lower())
-        return found
+        return found, frozenset(chts)
+
+    def games(self, pid: str) -> list[Game]:
+        return self.scan(pid)[0]
 
     def sync(self) -> None:
         subprocess.run(["sync"], check=False)

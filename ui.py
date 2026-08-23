@@ -31,6 +31,7 @@ class App(ttk.Frame):
 
         self.card: card_mod.Card | None = None
         self.platforms: list[card_mod.Platform] = []
+        self.platform: card_mod.Platform | None = None
         self.games: list[card_mod.Game] = []
         self.view: model.GameView | None = None
 
@@ -178,19 +179,23 @@ class App(ttk.Frame):
             return
         plat = self.platforms[int(sel[0])]
         self.games = plat.games
+        self.platform = plat
         self.gamelist.delete(*self.gamelist.get_children())
         self.cheats.delete(*self.cheats.get_children())
         self.view = None
         self.save_btn.state(["disabled"])
         self.source_btn.state(["disabled"])
         self.source_label.config(text="")
-        self.status.config(text=f"reading {len(self.games)} games...")
-        self.update_idletasks()
+        # Only the games that actually have a cheat file get opened and parsed.
+        # The rest are known to have none from the directory listing alone, so
+        # they cost nothing: no stat, no read.
         for i, g in enumerate(self.games):
-            n = len(model.writer.load_installed(g.cht_path))
+            n = len(model.writer.load_installed(g.cht_path)) \
+                if plat.has_cheats(g) else 0
             self.gamelist.insert("", "end", iid=str(i), text=g.name,
                                  values=(n if n else "",))
-        self.status.config(text=f"{len(self.games)} games")
+        self.status.config(text=f"{len(self.games)} games, "
+                                f"{len(plat.cheat_files)} with cheats")
 
     def on_game(self, _evt=None) -> None:
         sel = self.gamelist.selection()
