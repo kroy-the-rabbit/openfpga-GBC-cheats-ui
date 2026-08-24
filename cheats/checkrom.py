@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Check that a Game Genie code's compare byte matches the ROM it is aimed at.
 
 A Game Genie code carries a compare byte, and the patch only fires when the

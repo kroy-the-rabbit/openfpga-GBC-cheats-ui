@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Your own cheat files, kept outside the libretro submodule.
 
 The database is a git submodule: anything added to it is lost on the next

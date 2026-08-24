@@ -3,15 +3,18 @@
 A small desktop app for choosing which cheats go on the Pocket card.
 
 ```sh
-make gui                              # or: tools/cheatgui/run.sh
-tools/cheatgui/run.sh --list          # same data, printed, no window
-tools/cheatgui/run.sh --list zelda -v # filtered, and every cheat listed
+make gui                              # or: cheatgui/run.sh
+cheatgui/run.sh --list          # same data, printed, no window
+cheatgui/run.sh --list zelda -v # filtered, and every cheat listed
 ```
 
 Set `POCKET_CARD=/path/to/card` to point the tool at an explicit directory
-instead of searching the mounted volumes.
+instead of searching the mounted volumes. What gets searched depends on the
+platform, because the answer lives somewhere different on each: `findmnt` on
+Linux, `/Volumes` on macOS, drive letters on Windows. What makes a card a card
+is the same everywhere, a directory holding both `Cores/` and `Platforms/`.
 
-`run.sh` creates `tools/cheatgui/.venv` on first run. Everything used is in the
+`run.sh` creates `cheatgui/.venv` on first run. Everything used is in the
 Python standard library, so the venv stays empty; it exists so nothing is ever
 installed into the host Python.
 
@@ -33,6 +36,49 @@ last.
 If the window ever stops responding, `kill -USR1 <pid>` prints the stack of
 whatever it is blocked on to its stderr. That is how both of these were
 found.
+
+## The cheat database
+
+The picker needs the libretro cheat database and does not ship with one. The bar
+along the bottom says what it has and what upstream has:
+
+```
+cheat database: 2456 files, 2026-08-01  up to date
+cheat database: 2456 files, 2026-03-14  update available: 2026-08-01
+cheat database: not fetched yet, press Update
+```
+
+**Update** checks upstream first and downloads only if there is something to
+download, so pressing it when you are current costs two API calls rather than
+2456 files. The download runs on its own thread with the count on screen, so
+the panes stay usable while it goes; **Stop** aborts it. A fetch that fails or
+is stopped changes nothing, because the files land in a temporary directory and
+are only swapped in once every one of them has arrived.
+
+The comparison is against the newest upstream commit that touched the two Game
+Boy directories, not the repository head. The head moves several times a week
+for systems the Pocket has no core for, and comparing against it would report an
+update every time somebody edited a PlayStation cheat file.
+
+Three places are searched, in order: `POCKET_CHEAT_DB` if it is set, the copy
+the app fetched into `~/.local/share/pocket-cheats/libretro/`, and the
+`external/libretro-database` submodule in a checkout. A submodule is a shallow
+clone, and in one of those every path looks as though HEAD introduced it, so its
+version cannot be compared with upstream; the bar says so rather than inventing
+an answer.
+
+## Ejecting the card
+
+**Eject** syncs and then unmounts. Writing to the card already syncs, but a sync
+is not an unmount: the filesystem is still mounted and the kernel may still have
+metadata to write back, and a card pulled between the two can lose the write
+that the sync was for.
+
+It uses `udisksctl` on Linux and falls back to `umount`, `diskutil unmount` on
+macOS, and the shell's own Eject verb on Windows, which is what Explorer uses.
+If something still has the card open it says so and leaves the card mounted.
+Nothing is forced: a card yanked mid-write is the failure this whole tool exists
+to avoid.
 
 ## What it shows
 
@@ -63,13 +109,20 @@ sets health to sixteen hearts draws sixteen hearts either way.
 
 ## Cartridges
 
+**The full warning is in the [README](../README.md#cartridges-read-this-part),
+and it is worth reading before you send anything to a cartridge.** The short of
+it: identifying the right cheat file for a cartridge is your job, nothing here
+can check it, and a GameShark code aimed at the wrong revision is a real write
+into work RAM that can crash the game or end up in its save.
+
 A cartridge is not a file on the card, so it never shows up in the game list.
 The **Cartridges** entry in the systems pane is a list you keep yourself:
 **Add cartridge...**, name it as the ROM is named so cheat files match, and it
 behaves like any other game from there. The list is
 `~/.config/pocket-cheats/cartridges.json`, outside the repo; which cheat file
 each one uses is remembered alongside everything else, and **Change source...**
-repoints it.
+repoints it. **Remove** drops a cartridge from the list and forgets which file
+it used, and leaves any cheat file already on the card alone.
 
 **Send to Pocket** writes to `/Assets/<platform>/common/Cartridges/<name>.cht`.
 It goes in its own folder so that the core's file browser opens on your
@@ -83,7 +136,7 @@ wrong. A Game Genie code carries a compare byte, so on the wrong revision it
 never fires. A GameShark code has no such check: it is a real write to an
 address that may hold something else entirely on that revision, and it can
 corrupt a save. The status line warns when a cartridge selection contains
-written codes, and `tools/cheats/cht check --rom` verifies compare bytes
+written codes, and `cheats/cht check --rom` verifies compare bytes
 against a dump if you have one.
 
 ## How it decides things
@@ -108,17 +161,17 @@ in the matched libretro file (hand-written, or from another source), it is shown
 in green marked *already installed* and starts ticked, so saving cannot quietly
 throw away work.
 
-**Your own cheat files.** The libretro database is a git submodule, so anything
-added to it is lost on the next update. Put yours in
-`~/.local/share/pocket-cheats/cht/` instead, named after the ROM exactly as the
-ROM is named, and the picker finds them. They are searched first, so a file you
+**Your own cheat files.** An update replaces the libretro database wholesale, so
+anything added inside it is lost the next time you press Update. Put yours in
+`~/.local/share/pocket-cheats/cht/` instead, which is outside it, named after
+the ROM exactly as the ROM is named, and the picker finds them. They are searched first, so a file you
 wrote wins an otherwise exact tie, and the source line marks it *(yours)*.
 
 ```sh
-tools/cheats/cht list
-tools/cheats/cht new "Zelda (USA) (Rev 2)" --from "Zelda (USA)"   # start from a stock file
-tools/cheats/cht add "Zelda (USA) (Rev 2)" "999 Rupees" 9199ADC6+9109AEC6
-tools/cheats/cht check "Zelda (USA) (Rev 2)" --rom /path/to/rom.gbc
+cheats/cht list
+cheats/cht new "Zelda (USA) (Rev 2)" --from "Zelda (USA)"   # start from a stock file
+cheats/cht add "Zelda (USA) (Rev 2)" "999 Rupees" 9199ADC6+9109AEC6
+cheats/cht check "Zelda (USA) (Rev 2)" --rom /path/to/rom.gbc
 ```
 
 `check --rom` is the one worth using on anything hand-entered: it verifies each
