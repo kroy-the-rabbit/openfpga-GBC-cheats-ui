@@ -18,8 +18,10 @@ from tkinter import messagebox, simpledialog, ttk
 import card as card_mod
 import carts
 import library
+import meter
 import model
 import work
+import writer
 
 TICK, UNTICK = "☑", "☐"
 CARTS = "carts"        # iid of the Cartridges row in the systems pane
@@ -122,8 +124,10 @@ class App(ttk.Frame):
         bottom = ttk.Frame(right)
         bottom.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         bottom.columnconfigure(0, weight=1)
+        self.meter = meter.Meter(bottom, writer.MAX_CODES)
+        self.meter.grid(row=0, column=0, sticky="w")
         self.status = ttk.Label(bottom, text="")
-        self.status.grid(row=0, column=0, sticky="w")
+        self.status.grid(row=1, column=0, columnspan=4, sticky="w", pady=(4, 0))
         ttk.Button(bottom, text="None", width=6,
                    command=lambda: self.set_all(False)).grid(row=0, column=1, padx=2)
         ttk.Button(bottom, text="All", width=5,
@@ -339,6 +343,7 @@ class App(ttk.Frame):
         v = self.view
         self.cheats.delete(*self.cheats.get_children())
         if v is None:
+            self.meter.set(0)
             return
         if v.source:
             marks = []
@@ -370,10 +375,12 @@ class App(ttk.Frame):
     def update_status(self) -> None:
         v = self.view
         if v is None:
+            self.meter.set(0)
             return
         codes = sum(len(e.group.codes) for e in v.enabled)
+        self.meter.set(codes)
         written, patched = v.applied_counts
-        msg = f"{len(v.enabled)} of {len(v.entries)} on, {codes} codes"
+        msg = f"{len(v.enabled)} of {len(v.entries)} cheats on"
         if written or patched:
             msg += f" ({written} written, {patched} patched)"
         problems = list(v.problems)

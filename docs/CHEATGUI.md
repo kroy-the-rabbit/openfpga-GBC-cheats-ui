@@ -95,7 +95,13 @@ what you see is what the Pocket will do.
 **Only ticked cheats are written.** The core reads the first 32 cheats in a file
 whatever their enable flag says, so handing it a 100-cheat libretro file would
 truncate before reaching the one you wanted. Writing just the selection avoids
-the limit; the status line warns if a selection exceeds it anyway.
+the limit, and the bar above the status line shows how much of the store the
+selection uses: it fills as you tick, ambers near 32 and turns red past it,
+saying how many codes will not fit. It counts codes rather than cheats because
+every cheat carries at least one code, so the code store always fills first.
+Going over is otherwise silent: the core parses until the store is full and
+ignores the rest, so the cheats past the limit load, read as enabled, and do
+nothing.
 
 **Cheats it does not recognise are kept.** If the card holds a cheat that is not
 in the matched libretro file (hand-written, or from another source), it is shown
