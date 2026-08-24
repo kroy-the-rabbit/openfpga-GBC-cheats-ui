@@ -116,7 +116,8 @@ class GameBoyAdvanceIsCarriedNotRead(unittest.TestCase):
         groups = cheatfile.parse(GBA_FILE, "gba")
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "game.gba.cht")
-            cheats, codes = writer.write(path, groups, "gba")
+            cheats, codes, removed = writer.write(path, groups, "gba")
+            self.assertFalse(removed)
             self.assertEqual(cheats, 3)
             self.assertEqual(codes, sum(len(g.codes) for g in groups))
             back = writer.load_library(path, "gba")

@@ -76,17 +76,25 @@ def check(groups: list, platform: str) -> list[str]:
     return problems
 
 
-def write(game_cht: str, groups: list, platform: str) -> tuple[int, int]:
-    """Install a selection. Returns (cheats, codes) as the core will see them.
+def write(game_cht: str, groups: list, platform: str) -> tuple[int, int, bool]:
+    """Install a selection. Returns (cheats, codes, removed).
+
+    `removed` says the file was deleted rather than written, which is what an
+    empty selection means and is worth saying out loud.
 
     The written file is parsed back before this returns, so a bad write is
     caught here rather than on the handheld.
     """
     if not groups:
+        # Removing the file *is* the right thing for an empty selection: the
+        # file is the state, and no cheats means no file. It is still a
+        # deletion, so it is backed up and the caller is told, because
+        # "wrote 0 cheats" is not what happened.
         if os.path.exists(game_cht):
             backup(game_cht)
             os.remove(game_cht)
-        return (0, 0)
+            return (0, 0, True)
+        return (0, 0, False)
 
     text = render(groups)
     # A cartridge's file goes in its own folder, which will not exist yet.
@@ -105,7 +113,7 @@ def write(game_cht: str, groups: list, platform: str) -> tuple[int, int]:
         raise IOError(f"{game_cht}: wrote {len(want)} cheats but read back {len(got)}")
     if not all(g.enabled for g in back):
         raise IOError(f"{game_cht}: some cheats did not read back as enabled")
-    return (len(back), sum(len(g.codes) for g in back))
+    return (len(back), sum(len(g.codes) for g in back), False)
 
 
 def backup(path: str) -> str:

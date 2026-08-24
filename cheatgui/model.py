@@ -120,7 +120,9 @@ class GameView:
 
 def load(game, source: str | None = None) -> GameView:
     """Build the view for one game, honouring a pinned source if there is one."""
-    alternates = match.rank(game.name, game.platform)
+    import timing
+    with timing.stage("  match against the database"):
+        alternates = match.rank(game.name, game.platform)
     pinned = False
     if source is None:
         source = prefs.get_source(game.path)
@@ -132,7 +134,8 @@ def load(game, source: str | None = None) -> GameView:
         source = top.path if top and top.score >= 0.72 else None
 
     plat = game.platform
-    lib = writer.load_library(source, plat) if source else []
+    with timing.stage("  read the matched cheat file"):
+        lib = writer.load_library(source, plat) if source else []
     installed_groups = []
     if os.path.exists(game.cht_path):
         try:
