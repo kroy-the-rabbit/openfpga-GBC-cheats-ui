@@ -521,6 +521,13 @@ class App(ttk.Frame):
         self.worker.submit(lambda: model.load(game), self._loaded, "load")
 
     def _loaded(self, view, err) -> None:
+        if isinstance(err, library.MissingDatabase):
+            # Not worth a dialog. This is the state a freshly downloaded build
+            # starts in, it is not a failure, and the fix is one button away.
+            self.status.config(
+                text="no cheat database yet: press Update, at the bottom",
+                foreground="#a00")
+            return
         if err is not None:
             messagebox.showerror("Cheats", f"Could not read cheats:\n{err}")
             self.status.config(text="")

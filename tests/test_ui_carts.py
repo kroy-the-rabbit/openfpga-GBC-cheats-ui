@@ -22,6 +22,27 @@ import tkinter as tk                                         # noqa: E402
 from tkinter import messagebox                               # noqa: E402
 
 
+def build_db(root_dir: str, names: list[str]) -> str:
+    """A cheat database just big enough for matching to have something to do.
+
+    Without one, opening any game raises MissingDatabase, the app reports it
+    with a modal dialog, and under a headless X server that dialog waits
+    forever for a click nobody is going to make. That is not something to
+    leave to chance in a test suite: see the dialog stubs in setUp.
+    """
+    import db as db_mod
+    for d in db_mod.DIRS:
+        full = os.path.join(root_dir, d)
+        os.makedirs(full, exist_ok=True)
+        for name in names:
+            with open(os.path.join(full, name + ".cht"), "w") as f:
+                f.write('cheats = 1\n\n'
+                        'cheat0_desc = "Infinite Hearts (3)"\n'
+                        'cheat0_code = "010CAAC6"\n'
+                        'cheat0_enable = false\n')
+    return root_dir
+
+
 def build_card(root_dir: str, roms: int) -> str:
     """A directory that card.looks_like_card() accepts."""
     for d in ("Cores", "Platforms", "Assets/gb/common", "Assets/gbc/common"):
@@ -47,6 +68,9 @@ class CartPaneTest(unittest.TestCase):
         os.environ["XDG_DATA_HOME"] = os.path.join(cls.tmp.name, "data")
         os.environ["POCKET_CARD"] = build_card(
             os.path.join(cls.tmp.name, "card"), cls.ROMS)
+        os.environ["POCKET_CHEAT_DB"] = build_db(
+            os.path.join(cls.tmp.name, "cht"),
+            [f"Game {i}" for i in range(cls.ROMS)])
         # One interpreter, one Tk. Creating and destroying a root per test
         # while worker threads are still live is what makes Tcl abort the run
         # with "async handler deleted by the wrong thread"; only the App frame
@@ -76,11 +100,23 @@ class CartPaneTest(unittest.TestCase):
         self.ui = ui
         self.app = ui.App(self.root)
         self.pump(2.0)
-        self._askyesno = messagebox.askyesno
-        messagebox.askyesno = lambda *a, **k: True
+        # Every dialog, not just the one a test means to answer. A modal
+        # dialog under a headless X server blocks the whole suite until the
+        # job times out, and that failure looks like a hang rather than like a
+        # test that opened a dialog. These record instead, so a test can
+        # assert what was shown.
+        self.dialogs: list[tuple[str, tuple]] = []
+        self._boxes = {name: getattr(messagebox, name) for name in
+                       ("askyesno", "showerror", "showwarning", "showinfo")}
+        for name in self._boxes:
+            def stub(*a, _n=name, **k):
+                self.dialogs.append((_n, a))
+                return True if _n == "askyesno" else "ok"
+            setattr(messagebox, name, stub)
 
     def tearDown(self) -> None:
-        messagebox.askyesno = self._askyesno
+        for name, fn in self._boxes.items():
+            setattr(messagebox, name, fn)
         self.db.remote_state = self._remote_state
         # Let the version check finish before the interpreter tears Tk down.
         # Destroying the root while a worker thread is still live is what
@@ -172,6 +208,55 @@ class CartPaneTest(unittest.TestCase):
         self.assertEqual(self.carts.all(), [])
         self.assertEqual(self.app.gamelist.get_children(), ())
         self.assertIn("disabled", self.app.del_btn.state())
+
+
+class NoDatabaseTest(CartPaneTest):
+    """The state a downloaded build starts in: no cheat database at all.
+
+    This is what hung CI. Opening any game raised MissingDatabase, which the
+    app reports with a modal dialog, and under xvfb that dialog waits for a
+    click that never comes. The card panes must still work, because the
+    database has nothing to do with reading the card, and the report must not
+    be something that can block.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.saved_db = os.environ.get("POCKET_CHEAT_DB")
+        os.environ["POCKET_CHEAT_DB"] = os.path.join(
+            self.tmp.name, "no-such-database")
+        import library
+        library.refresh()
+
+    def tearDown(self) -> None:
+        if self.saved_db is None:
+            os.environ.pop("POCKET_CHEAT_DB", None)
+        else:
+            os.environ["POCKET_CHEAT_DB"] = self.saved_db
+        import library
+        library.refresh()
+        super().tearDown()
+
+    def test_the_card_still_lists(self):
+        self.assertTrue(self.app.systems.get_children())
+        gbc = [i for i in self.app.systems.get_children()
+               if self.app.systems.item(i, "text") == "Game Boy Color"][0]
+        self.app.systems.selection_set(gbc)
+        self.pump(2.0)
+        self.assertEqual(len(self.app.gamelist.get_children()), self.ROMS)
+
+    def test_opening_a_game_says_so_without_a_dialog(self):
+        """It says what to do, in the status line, and opens nothing modal."""
+        gbc = [i for i in self.app.systems.get_children()
+               if self.app.systems.item(i, "text") == "Game Boy Color"][0]
+        self.app.systems.selection_set(gbc)
+        self.pump(2.0)
+        self.app.gamelist.selection_set("0")
+        self.pump(2.0)
+        self.assertIn("no cheat database", self.app.status.cget("text"))
+        self.assertIn("Update", self.app.status.cget("text"))
+        self.assertEqual([d for d in self.dialogs if d[0] != "askyesno"], [],
+                         "a missing database is not worth a dialog")
 
 
 if __name__ == "__main__":
