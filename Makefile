@@ -36,9 +36,12 @@ dist: $(BUILDVENV)/bin/pyinstaller   ## build the binary for this platform
 		--distpath dist --workpath build/pyi packaging/pocket-cheats.spec
 	@ls -l dist/
 
+# certifi is a build-time dependency, not a run-time one: it supplies the CA
+# bundle a frozen binary carries because it cannot trust the build machine's
+# OpenSSL paths to exist elsewhere. A checkout uses the system store.
 $(BUILDVENV)/bin/pyinstaller:
 	$(PY) -m venv $(BUILDVENV)
-	$(BUILDVENV)/bin/pip install --quiet --upgrade pip pyinstaller
+	$(BUILDVENV)/bin/pip install --quiet --upgrade pip pyinstaller certifi
 
 WINEIMAGE ?= localhost/pocket-wine:1
 EXE ?= $(wildcard dist/*.exe)

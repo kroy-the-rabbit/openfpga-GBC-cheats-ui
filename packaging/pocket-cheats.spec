@@ -17,9 +17,12 @@ SHARED = os.path.join(ROOT, "cheats")
 # on sys.path at run time. Frozen there is no sys.path to arrange, so they are
 # named here instead and PyInstaller bundles them as top-level modules.
 HIDDEN = [
-    "card", "carts", "cli", "db", "library", "match", "meter", "model",
-    "prefs", "single", "ui", "version", "work", "writer",
+    "card", "carts", "cheatfile", "cli", "db", "library", "match", "meter",
+    "model", "prefs", "single", "timing", "ui", "version", "work", "writer",
     "chtparse", "ggdecode",
+    # The only third-party thing in a build, and only because a frozen binary
+    # has no trust store it can rely on: see db.ssl_context().
+    "certifi",
 ]
 
 # Nothing here talks to a database, a web framework or a notebook, and the

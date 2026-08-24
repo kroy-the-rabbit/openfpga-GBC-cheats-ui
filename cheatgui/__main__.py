@@ -22,6 +22,35 @@ sys.path.insert(1, os.path.join(os.path.dirname(HERE), "cheats"))
 
 
 def main() -> int:
+    if "--check-db" in sys.argv:
+        # Prints what a support question needs: which build, which database,
+        # and whether this machine can actually reach and verify upstream.
+        # A frozen binary carries its own CA bundle and there is no other way
+        # to find out whether the one it carries works.
+        import db
+        import ssl
+        import version
+        print(f"version:  {version.version()}"
+              f"{' (packaged)' if version.frozen() else ' (checkout)'}")
+        print(f"database: {db.db_dir()}")
+        local = db.local_state()
+        print(f"local:    {db.describe(local)}")
+        try:
+            import certifi
+            print(f"ca store: {certifi.where()} (bundled)")
+        except ImportError:
+            p = ssl.get_default_verify_paths()
+            print(f"ca store: {p.cafile or p.capath} (system)")
+        try:
+            remote = db.remote_state(timeout=20)
+            print(f"upstream: {remote['sha'][:10]} {db.day(remote['date'])}")
+            print("verdict:  upstream reachable and verified")
+            return 0
+        except Exception as e:                               # noqa: BLE001
+            print(f"upstream: {type(e).__name__}: {e}")
+            print("verdict:  COULD NOT REACH UPSTREAM")
+            return 1
+
     if "--list" in sys.argv:
         # Read only, so any number of these can run at once.
         import cli

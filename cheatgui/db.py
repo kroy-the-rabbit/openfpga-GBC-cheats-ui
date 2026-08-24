@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import ssl
 import subprocess
 import tempfile
 import time
@@ -46,6 +47,33 @@ UA = {"User-Agent": "pocket-cheats"}
 
 class Cancelled(Exception):
     """Raised out of fetch() when the caller asked it to stop."""
+
+
+_ctx = None
+
+
+def ssl_context() -> ssl.SSLContext:
+    """A context that can actually verify GitHub from a packaged build.
+
+    PyInstaller bundles the build machine's OpenSSL, and OpenSSL looks for the
+    trust store at a path compiled into it. A binary built on Ubuntu therefore
+    goes looking in Ubuntu's location on every machine that runs it, finds
+    nothing on a Fedora or a Windows one, and every fetch dies with
+    CERTIFICATE_VERIFY_FAILED. It worked from a checkout because that used the
+    host's own Python, which is exactly why it was not caught.
+
+    So a released build carries its own CA bundle, which is also the only way
+    to have one on Windows and macOS. From a checkout, where certifi is not
+    installed and not wanted, the system store is right and is used.
+    """
+    global _ctx
+    if _ctx is None:
+        try:
+            import certifi
+            _ctx = ssl.create_default_context(cafile=certifi.where())
+        except Exception:                                    # noqa: BLE001
+            _ctx = ssl.create_default_context()
+    return _ctx
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUBMODULE = os.path.join(ROOT, "external", "libretro-database", "cht")
@@ -131,7 +159,7 @@ def count_files(cht: str | None = None) -> int:
 def _get_json(url: str, timeout: int = TIMEOUT):
     req = urllib.request.Request(
         url, headers={**UA, "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(req, timeout=timeout) as f:
+    with urllib.request.urlopen(req, timeout=timeout, context=ssl_context()) as f:
         return json.load(f)
 
 
@@ -288,7 +316,8 @@ def _download(sha: str, d: str, name: str, dest: str, timeout: int) -> None:
     url = (f"{RAW}/{sha}/cht/" + urllib.parse.quote(d) + "/"
            + urllib.parse.quote(name))
     req = urllib.request.Request(url, headers=UA)
-    with urllib.request.urlopen(req, timeout=timeout) as f:
+    with urllib.request.urlopen(req, timeout=timeout,
+                                context=ssl_context()) as f:
         data = f.read()
     with open(dest, "wb") as f:
         f.write(data)

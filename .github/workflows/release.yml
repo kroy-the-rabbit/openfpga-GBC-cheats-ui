@@ -91,7 +91,7 @@ jobs:
           iconutil -c icns assets/icon.iconset -o assets/icon.icns
           file assets/icon.icns
 
-      - run: pip install pyinstaller
+      - run: pip install pyinstaller certifi
 
       - name: Build
         shell: bash
