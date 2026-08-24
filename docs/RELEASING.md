@@ -19,11 +19,14 @@ downloaded binary names the tag it came from and a run out of a checkout says
 |---|---|
 | `pocket-cheats-<version>-linux-x86_64` | one binary, run it |
 | `pocket-cheats-<version>-macos-arm64.zip` | `Pocket Cheats.app`, Apple Silicon |
-| `pocket-cheats-<version>-macos-x86_64.zip` | `Pocket Cheats.app`, Intel |
 | `pocket-cheats-<version>-windows-x64.exe` | one binary, run it |
 | `SHA256SUMS` | checksums of all of the above |
 | `SHA256SUMS.asc` | detached signature over `SHA256SUMS` |
 | `<file>.sig` | detached signature per artifact |
+
+Apple Silicon only on macOS. GitHub retired the Intel runners, and an Intel
+build is not worth keeping a second macOS job alive for; an Intel Mac runs it
+from a checkout, which [INSTALL.md](INSTALL.md) covers.
 
 Nothing is bundled but Python and Tk. The cheat database is fetched by the app
 on first run, so no third-party cheat content ships in a release and the

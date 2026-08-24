@@ -22,6 +22,7 @@ gpg --import KEYS
 
 # check the fingerprint against a source that is not this repository
 gpg --fingerprint "Pocket Cheats Release Signing"
+# C72E 94F3 D71E AD3D 41C9  A520 D6A3 B4CE 5A76 405D
 
 # the signature covers the whole manifest
 gpg --verify SHA256SUMS.asc SHA256SUMS
@@ -79,8 +80,9 @@ normally.
 Verify the GPG signature before you do that. Clearing quarantine on a file you
 have not checked is exactly the thing Gatekeeper is trying to stop.
 
-Take the `arm64` build on Apple Silicon and `x86_64` on Intel. The wrong one
-will not start.
+**Apple Silicon only.** There is no Intel build: GitHub retired the Intel
+runners it would be built on. An Intel Mac runs it from a checkout instead, at
+the bottom of this page.
 
 macOS asks for permission to read removable volumes the first time the app
 looks at an SD card. Refusing it leaves the card invisible to the app.
