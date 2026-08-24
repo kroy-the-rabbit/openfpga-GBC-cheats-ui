@@ -103,6 +103,20 @@ def available() -> bool:
     return _populated(db_dir())
 
 
+def missing_dirs(cht: str | None = None) -> list[str]:
+    """Directories this database should have and does not.
+
+    A copy fetched before a system was added holds nothing for it, and its
+    recorded commit says nothing about that. Without this check such a copy
+    can report itself current on the strength of a sha alone, and the system
+    that was added stays permanently empty.
+    """
+    cht = cht or db_dir()
+    return [d for d in DIRS
+            if not os.path.isdir(os.path.join(cht, d))
+            or not any(f.endswith(".cht") for f in os.listdir(os.path.join(cht, d)))]
+
+
 def count_files(cht: str | None = None) -> int:
     cht = cht or db_dir()
     n = 0
@@ -132,6 +146,7 @@ def local_state() -> dict | None:
     if not _populated(cht):
         return None
 
+    absent = missing_dirs(cht)
     if os.path.abspath(cht) == os.path.abspath(store_cht()):
         try:
             with open(state_file()) as f:
@@ -139,11 +154,12 @@ def local_state() -> dict | None:
             st["files"] = count_files(cht)
             st["source"] = "fetched"
             st["comparable"] = bool(st.get("sha"))
+            st["missing"] = absent
             return st
         except Exception:                                    # noqa: BLE001
             return {"sha": None, "date": None, "fetched": None,
                     "files": count_files(cht), "source": "fetched",
-                    "comparable": False}
+                    "comparable": False, "missing": absent}
 
     # A submodule checkout. Its HEAD is the whole repository's head, which
     # moves for systems this core cannot run, so it is not comparable with
@@ -152,7 +168,8 @@ def local_state() -> dict | None:
     # A shallow clone may hold no such commit, and then the version is simply
     # unknown: say so rather than inventing a comparison.
     st = {"sha": None, "date": None, "fetched": None,
-          "files": count_files(cht), "source": "submodule", "comparable": False}
+          "files": count_files(cht), "source": "submodule", "comparable": False,
+          "missing": absent}
     repo = os.path.dirname(os.path.abspath(cht))
 
     def git(*args) -> str | None:
@@ -204,6 +221,8 @@ def up_to_date(local: dict | None, remote: dict) -> bool:
     A version we cannot compare is never reported as up to date, and never as
     out of date either: describe() says it is unknown.
     """
+    if local and local.get("missing"):
+        return False          # a system it holds nothing for is not current
     return bool(local and local.get("comparable") and local.get("sha")
                 and local["sha"] == remote.get("sha"))
 
@@ -220,6 +239,12 @@ def describe(local: dict | None, remote: dict | None = None) -> str:
     when = _day(local.get("date")) or "unknown version"
     src = "" if local.get("source") == "fetched" else ", submodule"
     line = f"cheat database: {files} files, {when}{src}"
+    absent = local.get("missing") or []
+    if absent:
+        # Named, because "incomplete" on its own does not say what is missing
+        # or hint that pressing Update is what fixes it.
+        short = ", ".join(d.replace("Nintendo - ", "") for d in absent)
+        return line + f"  nothing for {short}: press Update"
     if remote is None:
         return line
     latest = _day(remote.get("date")) or "unknown"

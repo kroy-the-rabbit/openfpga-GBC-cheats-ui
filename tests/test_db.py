@@ -156,6 +156,37 @@ class Versions(Env):
         local = self.state(comparable=False)     # a lie in the file
         self.assertTrue(local["comparable"])     # and it is not believed
 
+    def test_a_copy_missing_a_system_is_never_current(self):
+        """Fetched before a system existed, so it holds nothing for it.
+
+        Its recorded commit says nothing about that, and if the newest commit
+        upstream happened to be one it already had, a sha comparison alone
+        would call it current and that system would stay empty forever.
+        """
+        local = self.state(sha=self.REMOTE["sha"], date=self.REMOTE["date"])
+        self.assertTrue(db.up_to_date(local, self.REMOTE))   # while complete
+
+        import shutil
+        shutil.rmtree(os.path.join(db.store_cht(), db.DIRS[-1]))
+        local = db.local_state()
+        self.assertEqual(local["missing"], [db.DIRS[-1]])
+        self.assertFalse(db.up_to_date(local, self.REMOTE))
+        text = db.describe(local, self.REMOTE)
+        self.assertIn("nothing for", text)
+        self.assertIn("press Update", text)
+        self.assertNotIn("up to date", text)
+
+    def test_an_empty_directory_counts_as_missing(self):
+        local = self.state()
+        import shutil
+        gone = os.path.join(db.store_cht(), db.DIRS[-1])
+        shutil.rmtree(gone)
+        os.makedirs(gone)
+        self.assertEqual(db.local_state()["missing"], [db.DIRS[-1]])
+
+    def test_a_complete_copy_reports_nothing_missing(self):
+        self.assertEqual(self.state()["missing"], [])
+
     def test_no_database_at_all(self):
         self.assertIn("not fetched yet", db.describe(None, self.REMOTE))
 
