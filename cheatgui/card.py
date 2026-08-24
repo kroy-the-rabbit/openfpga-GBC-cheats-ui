@@ -27,6 +27,17 @@ SUPPORTED = {
 }
 ROM_EXT = {".gb", ".gbc", ".gba"}
 
+# What to call each system before the card has been asked. The card carries
+# its own names in /Platforms/<id>.json, and reading those three small files
+# cost 2.6 seconds on a cold card, in front of an empty window, to arrive at
+# the names below. So these are used immediately and the card's own are read
+# afterwards, in the background, in case it disagrees.
+DISPLAY = {
+    "gb":  "Game Boy",
+    "gbc": "Game Boy Color",
+    "gba": "Game Boy Advance",
+}
+
 # Folders skipped when listing games. Romhacks are usually pre-patched variants
 # of a ROM that is already in the list, and they do not match anything in the
 # cheat database, so they only add noise. Nothing is hidden from the card, only
@@ -73,6 +84,10 @@ class Platform:
     # directory walk. Asking the filesystem per game instead is one stat each,
     # and on a card over USB that is slow enough to freeze the window.
     cheat_files: frozenset[str] = frozenset()
+    # False until something has actually walked this system's directory. An
+    # unscanned platform is not an empty one, and the difference matters:
+    # empty means "no ROMs", unscanned means "nobody has looked yet".
+    scanned: bool = False
 
     def has_cheats(self, game: "Game") -> bool:
         return game.cht_path in self.cheat_files
@@ -84,21 +99,49 @@ class Card:
     label: str = ""
 
     def platforms(self) -> list[Platform]:
+        """Which systems are on the card. Deliberately does not read them.
+
+        Walking all three took 27 seconds on a real card that had just been
+        mounted, and the window sat empty and unusable for every one of them.
+        The tree is only a few hundred files; it is exFAT over USB with a cold
+        cache, where each one costs tens of milliseconds however few of them
+        there are.
+
+        So this answers the cheap question, which systems exist, and the
+        expensive one is asked per system by fill() when somebody actually
+        looks at it. You then wait for the system you picked rather than for
+        all of them, and only the first time.
+        """
         out = []
         for pid in sorted(SUPPORTED):
             adir = os.path.join(self.root, "Assets", pid)
             if not os.path.isdir(adir):
                 continue
-            games, chts = self.scan(pid)
-            out.append(Platform(pid, self.platform_name(pid), games, chts))
+            out.append(Platform(pid, DISPLAY.get(pid, pid.upper())))
         return out
 
+    def fill(self, plat: Platform) -> Platform:
+        """Read one system's ROMs and cheat files. Slow on a cold card.
+
+        Never call this on the Tk thread. It is the same object back, so the
+        caller can hand it straight to whatever draws it.
+        """
+        if not plat.scanned:
+            # The card's own name for the system, now that we are reading it
+            # anyway and not holding up the window.
+            plat.name = self.platform_name(plat.id)
+            plat.games, plat.cheat_files = self.scan(plat.id)
+            plat.scanned = True
+        return plat
+
     def platform_name(self, pid: str) -> str:
+        """What this card calls a system. Reads a file, so not on first paint."""
         path = os.path.join(self.root, "Platforms", f"{pid}.json")
         try:
-            return json.load(open(path))["platform"]["name"]
+            with open(path) as f:
+                return json.load(f)["platform"]["name"]
         except Exception:                                    # noqa: BLE001
-            return pid.upper()
+            return DISPLAY.get(pid, pid.upper())
 
     def scan(self, pid: str) -> tuple[list[Game], frozenset[str]]:
         """ROMs and the cheat files beside them, from one walk of the tree.

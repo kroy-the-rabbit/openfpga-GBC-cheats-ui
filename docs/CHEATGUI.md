@@ -25,6 +25,23 @@ whichever saved last would silently win while the other still showed its stale
 ticks. `--list` is exempt, being read only, so you can query the card from a
 terminal with the window open.
 
+## Reading the card takes as long as it takes
+
+A card that has just been inserted is slow to read the first time: about
+fifteen seconds for three systems on exFAT over USB with nothing cached. That
+is the card, not the app, and it cannot be arranged away. Mounting the card
+before starting the app only feels instant because the desktop has already
+walked it for you.
+
+So it is stated rather than hidden. Reading happens behind a modal that says
+what it is doing and how far along it is, and the window opens fully populated
+rather than filling in a pane at a time. Filling in progressively was tried and
+was worse: the window looked ready while half of it was not, and clicking into
+it got you a list that changed under you. **Stop** gives up on the rest and
+keeps whatever was read.
+
+Warm, the whole thing takes a few milliseconds and the modal never appears.
+
 Reading the card happens off the Tk thread. A cold walk of `/Assets` over USB
 takes seconds, and doing it inline froze the window mid-click, which is
 indistinguishable from a crash even though it recovers. Scanning, listing a
@@ -195,6 +212,12 @@ against a dump if you have one.
 **The file on the card is the state.** There is no separate database. Opening a
 game reads the `.cht` already sitting next to the ROM and ticks those cheats, so
 what you see is what the Pocket will do.
+
+**Ticking nothing removes the file.** That is how you take cheats off a game,
+and it is what the file being the state means: no cheats, no file. Because
+"Send to Pocket" does not read like a deletion, the button says
+**Remove from Pocket** instead whenever that is what pressing it will do, it
+asks before doing it, and the copy it leaves behind is `.cht.bak`.
 
 **Only ticked cheats are written.** The core reads the first 32 cheats in a file
 whatever their enable flag says, so handing it a 100-cheat libretro file would

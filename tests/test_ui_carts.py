@@ -142,6 +142,21 @@ class CartPaneTest(unittest.TestCase):
             self.root.update()
             time.sleep(0.01)
 
+    def settle(self, limit: float = 15.0) -> None:
+        """Pump until both runners are idle.
+
+        Reading a system is off-thread and now happens lazily, so a fixed
+        sleep races it: a read landing after a later click overwrote what the
+        test was about to assert on.
+        """
+        end = time.time() + limit
+        while time.time() < end and (self.app.worker.busy
+                                     or self.app.worker.pending is not None
+                                     or self.app.dbjob.busy()):
+            self.root.update()
+            time.sleep(0.01)
+        self.pump(0.2)
+
     def show_carts(self) -> None:
         self.app.systems.selection_set(self.ui.CARTS)
         self.pump(0.5)
@@ -337,6 +352,147 @@ class CartGroupingTest(CartPaneTest):
         self.assertEqual(self.headings(), [ui_group("gb")])
 
 
+class LazyScanTest(CartPaneTest):
+    """A system is read when you pick it, not all of them up front.
+
+    Walking all three systems took 27 seconds on a real card that had just
+    been mounted, with the window unusable throughout. These pin the parts of
+    doing it lazily that broke while it was written.
+    """
+
+    def gbc(self) -> str:
+        return [i for i in self.app.systems.get_children()
+                if self.app.systems.item(i, "text") == "Game Boy Color"][0]
+
+    def test_the_systems_appear_before_anything_is_read(self):
+        names = [self.app.systems.item(i, "text")
+                 for i in self.app.systems.get_children()]
+        self.assertIn("Game Boy Color", names)
+        self.assertIn("Cartridges", names)
+
+    def test_an_unread_system_shows_no_count_rather_than_zero(self):
+        """Blank means nobody has counted; 0 would claim there are none."""
+        fresh = [p for p in self.app.platforms if not p.scanned]
+        for p in fresh:
+            row = [i for i in self.app.systems.get_children()
+                   if self.app.systems.item(i, "text") == p.name]
+            if row:
+                self.assertEqual(self.app.systems.item(row[0], "values")[0], "")
+
+    def test_picking_a_system_reads_it_and_counts_it(self):
+        self.app.systems.selection_set(self.gbc())
+        self.settle()
+        plat = self.app.platform
+        self.assertTrue(plat.scanned)
+        self.assertEqual(len(plat.games), self.ROMS)
+        self.assertEqual(str(self.app.systems.item(self.gbc(), "values")[0]),
+                         str(self.ROMS))
+
+    def test_the_rows_address_the_games_that_were_read(self):
+        """The bug this class exists for.
+
+        on_system took self.games before the system had been read, when it was
+        still the empty list a Platform starts with, and fill() replaces that
+        list rather than filling it. The pane then listed every game and
+        clicking one did nothing at all, silently.
+        """
+        self.app.systems.selection_set(self.gbc())
+        self.settle()
+        rows = self.app.gamelist.get_children()
+        self.assertEqual(len(rows), self.ROMS)
+        self.assertEqual(len(self.app.games), len(rows))
+        for iid in rows:
+            self.assertEqual(self.app.games[int(iid)].name,
+                             self.app.gamelist.item(iid, "text"))
+
+    def test_clicking_a_game_actually_loads_it(self):
+        self.app.systems.selection_set(self.gbc())
+        self.settle()
+        self.app.gamelist.selection_set("0")
+        self.settle()
+        self.assertIsNotNone(self.app.view)
+        self.assertEqual(self.app.view.game.name,
+                         self.app.gamelist.item("0", "text"))
+
+    def test_reselecting_a_system_does_not_read_it_again(self):
+        """Writing the count back into the selected row reissues the select
+        event; without a guard that lands back in on_system and loops."""
+        self.app.systems.selection_set(self.gbc())
+        self.settle()
+        plat = self.app.platform
+        before = plat.games
+        self.app.on_system()
+        self.settle()
+        self.assertIs(self.app.platform, plat)
+        self.assertIs(plat.games, before)
+
+
+class SendAndRemoveTest(CartPaneTest):
+    """Sending with nothing ticked deletes the file, and says so first.
+
+    That is a real way to take cheats off a game, not a mistake, but
+    "Send to Pocket" does not read like a deletion and the old status line
+    reported it as "wrote 0 cheats / 0 codes to the card".
+    """
+
+    def open_first_game(self):
+        gbc = [i for i in self.app.systems.get_children()
+               if self.app.systems.item(i, "text") == "Game Boy Color"][0]
+        self.app.systems.selection_set(gbc)
+        self.settle()
+        self.app.gamelist.selection_set("0")
+        self.settle()
+        self.assertIsNotNone(self.app.view)
+        return self.app.view
+
+    def test_sending_writes_and_removing_deletes(self):
+        v = self.open_first_game()
+        self.assertTrue(v.entries, "the fixture game has no cheats to pick")
+
+        # Tick one and send.
+        self.app.set_all(False)
+        v.entries[0].enabled = True
+        self.app.update_status()
+        self.assertEqual(self.app.save_btn.cget("text"), "Send to Pocket")
+        self.app.save()
+        self.settle()
+        self.assertTrue(os.path.exists(v.game.cht_path))
+        self.assertIn("wrote", self.app.status.cget("text"))
+
+        # Now untick everything. The button must say what it will do.
+        self.app.set_all(False)
+        self.assertEqual(self.app.save_btn.cget("text"), "Remove from Pocket")
+
+        self.app.save()
+        self.settle()
+        self.assertFalse(os.path.exists(v.game.cht_path),
+                         "the cheat file should have been removed")
+        self.assertTrue(os.path.exists(v.game.cht_path + ".bak"),
+                        "a backup should be left beside it")
+        self.assertIn("removed", self.app.status.cget("text"))
+        self.assertNotIn("wrote", self.app.status.cget("text"))
+
+    def test_removing_asks_first(self):
+        v = self.open_first_game()
+        v.entries[0].enabled = True
+        self.app.update_status()
+        self.app.save()
+        self.settle()
+
+        self.dialogs.clear()
+        self.app.set_all(False)
+        self.app.save()
+        self.settle()
+        asked = [d for d in self.dialogs if d[0] == "askyesno"]
+        self.assertTrue(asked, "removing the file went ahead without asking")
+
+    def test_the_button_stays_send_when_there_is_no_file(self):
+        v = self.open_first_game()
+        self.app.set_all(False)
+        self.assertFalse(os.path.exists(v.game.cht_path))
+        self.assertEqual(self.app.save_btn.cget("text"), "Send to Pocket")
+
+
 class NoDatabaseTest(CartPaneTest):
     """The state a downloaded build starts in: no cheat database at all.
 
@@ -377,9 +533,9 @@ class NoDatabaseTest(CartPaneTest):
         gbc = [i for i in self.app.systems.get_children()
                if self.app.systems.item(i, "text") == "Game Boy Color"][0]
         self.app.systems.selection_set(gbc)
-        self.pump(2.0)
+        self.settle()
         self.app.gamelist.selection_set("0")
-        self.pump(2.0)
+        self.settle()
         self.assertIn("no cheat database", self.app.status.cget("text"))
         self.assertIn("Update", self.app.status.cget("text"))
         self.assertEqual([d for d in self.dialogs if d[0] != "askyesno"], [],

@@ -23,6 +23,7 @@ import db
 import library
 import meter
 import model
+import timing
 import version
 import work
 import writer
@@ -46,6 +47,13 @@ class App(ttk.Frame):
         # The database fetch gets its own runner: it takes about a minute, and
         # card reads must not queue behind it.
         self.dbjob = work.Job(master)
+        # Reads the whole card in the background, a system at a time, starting
+        # with whichever one you are looking at. See start_prefetch.
+        self.prefetch = work.Job(master)
+        self.ready: dict[str, list[int]] = {}   # platform id -> cheat counts
+        self.wanted: str | None = None          # the system to read next
+        self.working: Working | None = None     # the modal, while it is up
+        self._working_after = None
         self.remote: dict | None = None       # upstream's version, once known
         self.dbjob_kind = ""                  # "check" or "update", for Stop
         self.games: list[card_mod.Game] = []
@@ -150,8 +158,8 @@ class App(ttk.Frame):
                    command=lambda: self.set_all(False)).grid(row=0, column=1, padx=2)
         ttk.Button(bottom, text="All", width=5,
                    command=lambda: self.set_all(True)).grid(row=0, column=2, padx=2)
-        self.save_btn = ttk.Button(bottom, text="Send to Pocket", command=self.save,
-                                   state="disabled")
+        self.save_btn = ttk.Button(bottom, text="Send to Pocket", width=16,
+                                   command=self.save, state="disabled")
         self.save_btn.grid(row=0, column=3, padx=(8, 0))
 
         self._build_dbbar()
@@ -204,6 +212,11 @@ class App(ttk.Frame):
         self.source_btn.state(["disabled"])
         self.source_label.config(text="")
 
+        if self.prefetch.busy():
+            self.prefetch.cancel()
+        self.close_working()
+        self.ready.clear()
+        self.wanted = None
         self.eject_btn.state(["disabled"])
         self.card_label.config(text="scanning...", foreground="#666")
         self.status.config(text="reading the card", foreground="#000")
@@ -213,10 +226,13 @@ class App(ttk.Frame):
     @staticmethod
     def _scan():
         """Worker thread: no widgets touched here."""
-        cards = card_mod.find_cards()
+        with timing.stage("find_cards"):
+            cards = card_mod.find_cards()
         if not cards:
             return None
-        return cards, cards[0].platforms()
+        with timing.stage("list the systems"):
+            plats = cards[0].platforms()
+        return cards, plats
 
     def _scanned(self, result, err) -> None:
         self.rescan_btn.state(["!disabled"])
@@ -234,20 +250,22 @@ class App(ttk.Frame):
 
         cards, platforms = result
         self.card = cards[0]
+        self.ready.clear()
         self.eject_btn.state(["!disabled"])
         self.platforms = platforms
         extra = f"  (+{len(cards) - 1} more)" if len(cards) > 1 else ""
         self.card_label.config(text=f"{self.card.root}  [{self.card.label}]{extra}",
                                foreground="#060")
         for i, p in enumerate(self.platforms):
+            # Blank rather than 0 until the system has been read: nobody has
+            # counted yet, and 0 would be a claim that there are none.
             self.systems.insert("", "end", iid=str(i), text=p.name,
-                                values=(len(p.games),))
+                                values=(len(p.games) if p.scanned else "",))
         # Cartridges are not files on the card, so they are listed separately.
         self.systems.insert("", "end", iid=CARTS, text="Cartridges",
                             values=(len(carts.all()),))
-        self.status.config(text=f"{sum(len(p.games) for p in self.platforms)} ROMs")
-        if self.platforms:
-            self.systems.selection_set("0")
+        self.status.config(text="reading the card...")
+        self.start_prefetch()
 
     def eject(self) -> None:
         """Flush and unmount, so the card can be pulled without losing a write.
@@ -415,43 +433,167 @@ class App(ttk.Frame):
             self.show_carts()
             return
         plat = self.platforms[int(sel[0])]
-        self.games = plat.games
+        if (plat is self.platform and plat.scanned
+                and self.gamelist.get_children()):
+            # Already shown. Re-selecting the same system must not read it
+            # again: writing the ROM count back into the selected row makes Tk
+            # reissue <<TreeviewSelect>>, and without this that lands straight
+            # back here and reads the card in a loop.
+            return
         self.platform = plat
+        self.games = []
         self.gamelist.delete(*self.gamelist.get_children())
         self.cheats.delete(*self.cheats.get_children())
         self.view = None
         self.save_btn.state(["disabled"])
         self.source_btn.state(["disabled"])
         self.source_label.config(text="")
-        self.status.config(text=f"reading {len(self.games)} games...")
-        self.worker.submit(lambda: self._counts(plat), self._listed, "list")
+        # Reading is the background pass's job. Ask it for this one next, and
+        # show whatever it already has.
+        self.wanted = plat.id
+        if plat.id in self.ready:
+            self.fill_pane(plat)
+        else:
+            self.status.config(text=f"reading {plat.name}...",
+                               foreground="#000")
 
-    @staticmethod
-    def _counts(plat):
-        """Worker thread: how many cheats each game has installed.
+    def apply_ready_pane(self) -> None:
+        """Draw the selected system once the card has been read."""
+        if self.platform is not None and self.platform.id in self.ready:
+            self.fill_pane(self.platform)
 
-        Only the games that really have a file are opened. The rest are known
-        to have none from the directory listing alone, so they cost nothing.
+    # ------------------------------------------------------------ reading --
+    def start_prefetch(self) -> None:
+        """Read the whole card in the background, a system at a time.
+
+        Reading a system on a cold card costs seconds: about two and a half to
+        walk it and nearly eight more to open the cheat file beside every game
+        that has one. Doing all three up front left the window unusable for
+        twenty-seven seconds. Doing them on demand was worse, because the wait
+        moved to every time you clicked a system, which is when you are
+        actually looking at it.
+
+        So it happens up here, off the Tk thread, starting with whichever
+        system is selected and moving to that one whenever the selection
+        changes. Clicking a system you have already visited costs nothing, and
+        clicking one the pass has not reached yet says so and fills in when it
+        arrives. Warm, the whole thing takes a fraction of a second and none
+        of this is visible.
         """
-        return plat, [len(model.writer.load_installed(g.cht_path, plat.id))
-                      if plat.has_cheats(g) else 0 for g in plat.games]
+        if self.card is None or self.prefetch.busy():
+            return
+        card = self.card
+        plats = list(self.platforms)
+        ready = self.ready
+        # Only raise the modal if this is actually going to take a moment. A
+        # card the desktop has already walked is read in milliseconds, and a
+        # dialog that flashes up and vanishes is worse than none.
+        self._working_after = self.after(
+            400, lambda: self.show_working(len(plats)))
 
-    def _listed(self, result, err) -> None:
+        def body(report, cancelled):
+            done: set[str] = set()
+            while len(done) < len(plats):
+                if cancelled():
+                    return
+                # Whatever the user is looking at goes next.
+                nxt = next((p for p in plats
+                            if p.id == self.wanted and p.id not in done), None)
+                if nxt is None:
+                    nxt = next(p for p in plats if p.id not in done)
+                if not nxt.scanned:
+                    with timing.stage("walk one system", nxt.name):
+                        card.fill(nxt)
+                with timing.stage("count installed cheats",
+                                  f"{nxt.name}, {len(nxt.games)} games"):
+                    counts = [
+                        len(model.writer.load_installed(g.cht_path, nxt.id))
+                        if nxt.has_cheats(g) else 0 for g in nxt.games]
+                ready[nxt.id] = counts
+                done.add(nxt.id)
+                report(len(done), len(plats), nxt.id)
+
+        self.prefetch.start(body, self._prefetched, self._prefetch_done)
+
+    def show_working(self, total: int) -> None:
+        self._working_after = None
+        if self.prefetch.busy() and self.working is None:
+            self.working = Working(self, total, on_cancel=self.stop_working)
+
+    def stop_working(self) -> None:
+        """Give up on the rest of the card. What was read is kept."""
+        self.prefetch.cancel()
+
+    def close_working(self) -> None:
+        if self._working_after is not None:
+            self.after_cancel(self._working_after)
+            self._working_after = None
+        if self.working is not None:
+            self.working.close()
+            self.working = None
+
+    def _prefetched(self, done: int, total: int, pid: str) -> None:
+        """One system finished. Tk thread.
+
+        Nothing is drawn yet on purpose: a window that fills in a pane at a
+        time looks ready while half of it is not, and clicking into it gets
+        you a list that changes under you.
+        """
+        name = next((p.name for p in self.platforms if p.id == pid), pid)
+        if self.working is not None:
+            self.working.step(done, total, f"Read {name}")
+        self.status_hint(f"reading the card... {done} of {total} systems")
+
+    def _prefetch_done(self, _result, err) -> None:
+        self.close_working()
         if err is not None:
             self.status.config(text=f"could not read the card: {err}",
                                foreground="#a00")
             return
-        plat, counts = result
-        if plat is not self.platform:        # the user moved on while we read
-            return
-        self.gamelist.delete(*self.gamelist.get_children())
+        self.apply_ready()
+        # Show the first system now that everything behind it is real.
+        if self.platforms and not self.systems.selection():
+            self.systems.selection_set("0")
+        self.status_hint("")
+
+    def status_hint(self, text: str) -> None:
+        """Say what the background pass is doing, without talking over a game."""
+        if self.view is None:
+            if text:
+                self.status.config(text=text, foreground="#666")
+            elif self.platform is not None and self.platform.scanned:
+                self.status.config(
+                    text=f"{len(self.platform.games)} games, "
+                         f"{len(self.platform.cheat_files)} with cheats",
+                    foreground="#000")
+
+    def apply_ready(self) -> None:
+        """Show whatever the background pass has finished. Tk thread."""
+        for i, p in enumerate(self.platforms):
+            if p.scanned:
+                self.systems.item(str(i), text=p.name,
+                                  values=(len(p.games),))
+        plat = self.platform
+        if (plat is not None and plat.id in self.ready
+                and len(self.gamelist.get_children()) != len(plat.games)):
+            self.fill_pane(plat)
+
+    def fill_pane(self, plat) -> None:
+        """Draw one system's games, with the cheat counts already read."""
+        counts = self.ready.get(plat.id) or [0] * len(plat.games)
+        # Bound to the list fill() produced, not the empty one a Platform
+        # starts with: fill() replaces the list rather than filling it, and
+        # binding early left every row indexing an empty list, so clicking a
+        # game silently did nothing.
+        self.games = plat.games
+        with timing.stage("clear the game pane"):
+            self.gamelist.delete(*self.gamelist.get_children())
         self.move_btn.state(["disabled"])
-        for i, (g, n) in enumerate(zip(plat.games, counts)):
-            self.gamelist.insert("", "end", iid=str(i), text=g.name,
-                                 values=(n if n else "",))
-        self.status.config(text=f"{len(plat.games)} games, "
-                                f"{len(plat.cheat_files)} with cheats",
-                           foreground="#000")
+        with timing.stage("fill the game pane", f"{len(plat.games)} rows"):
+            for i, (g, n) in enumerate(zip(plat.games, counts)):
+                self.gamelist.insert("", "end", iid=str(i), text=g.name,
+                                     values=(n if n else "",))
+        self.status_hint("")
 
     def platform_name(self, pid: str) -> str:
         """What the card calls a system, falling back to the bare id.
@@ -609,7 +751,12 @@ class App(ttk.Frame):
         self.del_btn.state(["!disabled"] if is_cart else ["disabled"])
         self.move_btn.state(["!disabled"] if is_cart else ["disabled"])
         self.status.config(text="loading...", foreground="#000")
-        self.worker.submit(lambda: model.load(game), self._loaded, "load")
+
+        def load():
+            with timing.stage("load a game", game.name[:40]):
+                return model.load(game)
+
+        self.worker.submit(load, self._loaded, "load")
 
     def _loaded(self, view, err) -> None:
         if isinstance(err, library.MissingDatabase):
@@ -628,6 +775,12 @@ class App(ttk.Frame):
         self.source_btn.state(["!disabled"])
         self.save_btn.state(["!disabled"])
 
+    def retune_save_button(self, v) -> None:
+        removing = not v.enabled and os.path.exists(v.game.cht_path)
+        self.save_btn.config(
+            text="Remove from Pocket" if removing else "Send to Pocket",
+            width=19 if removing else 16)
+
     def retune_meter(self, platform: str) -> None:
         """The code store is the core's, so its size follows the system."""
         if platform == self.meter_platform:
@@ -638,7 +791,8 @@ class App(ttk.Frame):
 
     def refresh_cheats(self) -> None:
         v = self.view
-        self.cheats.delete(*self.cheats.get_children())
+        with timing.stage("clear the cheat pane"):
+            self.cheats.delete(*self.cheats.get_children())
         if v is None:
             self.meter.set(0)
             return
@@ -655,18 +809,20 @@ class App(ttk.Frame):
         else:
             label = "no matching cheat file found"
         self.source_label.config(text=label)
-        for i, e in enumerate(v.entries):
-            tags = []
-            if not e.in_library:
-                tags.append("extra")
-            if e.placeholder:
-                tags.append("dead")
-            desc = e.desc + ("   (already installed)" if not e.in_library else "")
-            self.cheats.insert("", "end", iid=str(i),
-                               text=TICK if e.enabled else UNTICK,
-                               values=(desc, e.applied,
-                                       e.summary or "no usable code"),
-                               tags=tuple(tags))
+        with timing.stage("fill the cheat pane", f"{len(v.entries)} rows"):
+            for i, e in enumerate(v.entries):
+                tags = []
+                if not e.in_library:
+                    tags.append("extra")
+                if e.placeholder:
+                    tags.append("dead")
+                desc = e.desc + ("   (already installed)" if not e.in_library
+                                 else "")
+                self.cheats.insert("", "end", iid=str(i),
+                                   text=TICK if e.enabled else UNTICK,
+                                   values=(desc, e.applied,
+                                           e.summary or "no usable code"),
+                                   tags=tuple(tags))
         self.update_status()
 
     def update_status(self) -> None:
@@ -683,6 +839,11 @@ class App(ttk.Frame):
             msg += f" ({written} written, {patched} patched)"
         elif not cheatfile.decoded(v.platform):
             msg += "   codes carried as written; this core does not read them yet"
+        # Ticking nothing and sending is how you take cheats off a game, and
+        # it works, but "Send to Pocket" does not read like a deletion. The
+        # button says which of the two it is about to do.
+        self.retune_save_button(v)
+
         problems = list(v.problems)
         # On a cartridge you cannot check the revision, and the two kinds of
         # code fail differently when it is wrong: a Game Genie patch carries a
@@ -732,6 +893,16 @@ class App(ttk.Frame):
         if problems and not messagebox.askyesno(
                 "Cheats", "\n".join(problems) + "\n\nWrite anyway?"):
             return
+        # An empty selection deletes the file. That is correct, since the file
+        # is the state, but it is a deletion and "Send to Pocket" does not
+        # read like one: ask.
+        if not v.enabled and os.path.exists(v.game.cht_path):
+            if not messagebox.askyesno(
+                    "Remove from Pocket",
+                    f"Remove {os.path.basename(v.game.cht_path)} from the card?"
+                    "\n\nNothing is ticked, so this game will have no cheats."
+                    " A copy is kept beside it as .cht.bak."):
+                return
         def write():
             result = v.save()
             if self.card:
@@ -739,7 +910,9 @@ class App(ttk.Frame):
             return result
 
         self.save_btn.state(["disabled"])
-        self.status.config(text="writing to the card...", foreground="#000")
+        self.status.config(
+            text="removing from the card..." if not v.enabled
+                 else "writing to the card...", foreground="#000")
         self.worker.submit(write, self._saved, "save")
 
     def _saved(self, result, err) -> None:
@@ -748,13 +921,76 @@ class App(ttk.Frame):
             messagebox.showerror("Cheats", f"Could not write:\n{err}")
             self.status.config(text="")
             return
-        cheats, codes = result
+        cheats, codes, removed = result
         sel = self.gamelist.selection()
         if sel:
             self.gamelist.item(sel[0], values=(cheats if cheats else "",))
         self.status.config(
-            text=f"wrote {cheats} cheats / {codes} codes to the card",
+            text="removed the cheat file from the card (.cht.bak kept)"
+                 if removed else
+                 f"wrote {cheats} cheats / {codes} codes to the card",
             foreground="#060")
+
+
+class Working(tk.Toplevel):
+    """Modal "reading the card" window, shown while the card is being read.
+
+    Reading a cold card takes upwards of fifteen seconds and no amount of
+    rearranging makes that work go away: it is the card, over USB, on exFAT,
+    with nothing cached. Mounting it before the app starts only feels fast
+    because the desktop has already walked it on your behalf.
+
+    So the wait is stated rather than hidden. Filling the panes as each system
+    arrived was worse in practice: the window looked ready while half of it
+    was not, and clicking into it got you a pane that changed under you.
+    """
+
+    def __init__(self, app, total: int, on_cancel=None) -> None:
+        super().__init__(app)
+        self.title("Reading the card")
+        self.transient(app.winfo_toplevel())
+        self.resizable(False, False)
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        body = ttk.Frame(self, padding=16)
+        body.grid(sticky="nsew")
+        self.label = ttk.Label(body, width=46, anchor="w",
+                               text="Reading the card...")
+        self.label.grid(row=0, column=0, sticky="w")
+        self.bar = ttk.Progressbar(body, length=320, mode="determinate",
+                                   maximum=max(1, total))
+        self.bar.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        self.note = ttk.Label(body, foreground="#666", anchor="w", width=46,
+                              text="A card that has just been inserted is slow "
+                                   "to read the first time.")
+        self.note.grid(row=2, column=0, sticky="w", pady=(8, 0))
+        if on_cancel is not None:
+            ttk.Button(body, text="Stop", command=on_cancel).grid(
+                row=3, column=0, sticky="e", pady=(12, 0))
+
+        self.update_idletasks()
+        self.centre(app.winfo_toplevel())
+        self.grab_set()
+
+    def centre(self, over) -> None:
+        try:
+            x = over.winfo_rootx() + (over.winfo_width() - self.winfo_width()) // 2
+            y = over.winfo_rooty() + (over.winfo_height() - self.winfo_height()) // 3
+            self.geometry(f"+{max(0, x)}+{max(0, y)}")
+        except Exception:                                    # noqa: BLE001
+            pass
+
+    def step(self, done: int, total: int, message: str) -> None:
+        self.bar.config(maximum=max(1, total), value=done)
+        if message:
+            self.label.config(text=message)
+
+    def close(self) -> None:
+        try:
+            self.grab_release()
+        except Exception:                                    # noqa: BLE001
+            pass
+        self.destroy()
 
 
 class CartDialog(tk.Toplevel):

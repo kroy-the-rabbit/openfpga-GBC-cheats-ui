@@ -27,6 +27,8 @@ def main(argv: list[str]) -> int:
     print(f"card: {c.root} [{c.label}]")
     want = [a for a in argv if not a.startswith("-")]
     for p in c.platforms():
+        # platforms() no longer reads the systems, so ask for this one.
+        c.fill(p)
         print(f"\n== {p.name} [{p.id}]  {len(p.games)} ROMs")
         for g in p.games:
             if want and not any(w.lower() in g.name.lower() for w in want):
