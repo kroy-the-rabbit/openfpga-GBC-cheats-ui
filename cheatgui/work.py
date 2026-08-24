@@ -74,3 +74,82 @@ class Worker:
                 self._start()
         else:
             self._start()
+
+
+class Job:
+    """One long task with progress, on a thread of its own.
+
+    Separate from Worker deliberately. Fetching the cheat database takes about
+    a minute, and Worker runs one job at a time, so queueing card reads behind
+    it would leave every pane dead for that whole minute. This runs alongside,
+    and the two never touch the same widgets.
+    """
+
+    POLL_MS = 100
+
+    def __init__(self, widget) -> None:
+        self.widget = widget
+        self.results: queue.Queue = queue.Queue()
+        self.running = False
+        self._cancel = False
+
+    def busy(self) -> bool:
+        return self.running
+
+    def cancel(self) -> None:
+        """Ask the body to stop. It decides where it is safe to."""
+        self._cancel = True
+
+    def start(self, body, on_progress, on_done) -> bool:
+        """Run body(report, cancelled) off-thread. False if one is running.
+
+        report(done, total, message) and on_progress have the same shape;
+        on_done(value, error) is the Worker's. Both are called on the Tk
+        thread, so both may touch widgets.
+        """
+        if self.running:
+            return False
+        self.running = True
+        self._cancel = False
+
+        def report(done, total, message="") -> None:
+            self.results.put(("progress", (done, total, message)))
+
+        def cancelled() -> bool:
+            return self._cancel
+
+        def run() -> None:
+            try:
+                self.results.put(("done", (body(report, cancelled), None)))
+            except BaseException as e:                       # noqa: BLE001
+                self.results.put(("done", (None, e)))
+
+        threading.Thread(target=run, daemon=True, name="job").start()
+        self._schedule(on_progress, on_done)
+        return True
+
+    def _schedule(self, on_progress, on_done) -> None:
+        self.widget.after(self.POLL_MS, lambda: self._poll(on_progress, on_done))
+
+    def _poll(self, on_progress, on_done) -> None:
+        # Drain the queue and show only the newest progress. A thread pool
+        # reporting faster than 10 Hz would otherwise queue up updates the
+        # user never sees and the poll would fall further behind each tick.
+        latest = None
+        while True:
+            try:
+                kind, payload = self.results.get_nowait()
+            except queue.Empty:
+                break
+            if kind == "progress":
+                latest = payload
+                continue
+            self.running = False
+            if latest is not None and on_progress:
+                on_progress(*latest)
+            on_done(*payload)
+            return
+
+        if latest is not None and on_progress:
+            on_progress(*latest)
+        self._schedule(on_progress, on_done)

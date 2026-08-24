@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Install libretro cheat files next to ROMs on a Pocket SD card.
 
 APF names data slot 7 by taking the slot-0 filename and *appending* this slot's
@@ -25,15 +26,14 @@ import shutil
 import sys
 from typing import Optional
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+sys.path.insert(1, os.path.join(os.path.dirname(HERE), "cheatgui"))
 import chtparse  # noqa: E402
+import db        # noqa: E402
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DB = os.path.join(ROOT, "external", "libretro-database", "cht")
 ROM_EXT = {".gb", ".gbc"}
 CORE_FOR_EXT = {".gbc": "budude2.GBC", ".gb": "budude2.GB"}
-
-import genmenu  # noqa: E402
 
 
 def norm(name: str) -> str:
@@ -45,10 +45,13 @@ def norm(name: str) -> str:
 
 
 def db_files() -> list[str]:
-    if not os.path.isdir(DB):
-        sys.exit(f"{DB} not found; run: tools/cheats/init-db.sh")
+    if not db.available():
+        sys.exit(f"no cheat database at {db.db_dir()}.\n"
+                 "Fetch one with the picker's Update button, or "
+                 "cheats/init-db.sh in a checkout.")
+    root = db.db_dir()
     return [os.path.join(d, f)
-            for d, _, fs in os.walk(DB) for f in fs if f.endswith(".cht")]
+            for d, _, fs in os.walk(root) for f in fs if f.endswith(".cht")]
 
 
 def rank(rom: str, cands: list[str]) -> list[tuple[float, str]]:
@@ -78,7 +81,7 @@ def describe(path: str, ext: str) -> None:
         print(f"    [{'on ' if g.enabled else 'off'}] "
               f"{g.desc or '(no description)'}  [{codes}]")
     on = sum(1 for g in groups if g.enabled)
-    print(f"    ({len(groups)} cheats, {on} enabled; limit is {genmenu.MAX_GROUPS})")
+    print(f"    ({len(groups)} cheats, {on} enabled; limit is {chtparse.MAX_GROUPS})")
 
 
 def final_groups(src: str, only: list[int] | None, top: int) -> list:
