@@ -1,11 +1,18 @@
 # Pocket cheat picker
 
 A small desktop app for choosing which cheats go on an Analogue Pocket SD card,
-for the Game Boy and Game Boy Color cores.
+for the Game Boy, Game Boy Color and Game Boy Advance cores.
 
 Three panes: the systems on the card, the games in each, and the cheats for the
 selected game. Tick what you want and press **Send to Pocket**. The file next to
 the ROM *is* the state, so what you see is what the handheld will do.
+
+![The picker, with a cartridge selected and its cheats listed](docs/screenshot.png)
+
+That is a cartridge rather than a ROM, which is why the status line is red: nine
+of the ticked cheats are GameShark codes, and on a cartridge whose revision you
+cannot check those are the dangerous kind. The **Applied** column says which is
+which, and [Cartridges](#cartridges-read-this-part) explains why it matters.
 
 ## Get it
 
