@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Match a ROM filename to its entry in the libretro cheat database.
 
 Names differ in region tags, revision markers and punctuation, so compare a

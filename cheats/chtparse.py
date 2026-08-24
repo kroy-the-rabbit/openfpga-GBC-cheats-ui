@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Parse libretro .cht cheat files the same way src/gb/cheat_loader.sv does.
 
 This is the golden reference for the RTL parser: the testbench feeds both this

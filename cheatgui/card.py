@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Find and read an Analogue Pocket SD card.
 
 The Pocket's layout is fixed: platforms live under /Assets/<platform id>/, cores

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Run card I/O off the Tk thread.
 
 Reading the card is slow and unpredictable: a cold walk of /Assets over USB can

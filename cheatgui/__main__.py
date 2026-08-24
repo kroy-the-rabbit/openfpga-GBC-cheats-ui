@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Entry point: python -m cheatgui, or tools/cheatgui/run.sh"""
 import faulthandler
 import os

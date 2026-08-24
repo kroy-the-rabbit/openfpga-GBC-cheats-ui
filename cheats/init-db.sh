@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Check out just the Game Boy / Game Boy Color cheat files from the
 # libretro-database submodule. The full repo is ~830 MB checked out; the two
 # directories we care about are ~12 MB.

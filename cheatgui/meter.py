@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """A bar showing how much of the core's code store a selection uses.
 
 The core holds 32 cheats and 32 codes. Every cheat carries at least one code,

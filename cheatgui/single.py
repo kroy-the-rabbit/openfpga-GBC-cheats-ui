@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """One GUI at a time.
 
 Two copies pointed at the same card can each hold a different idea of what is

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Remembered choices, kept off the SD card so it stays clean."""
 from __future__ import annotations
 

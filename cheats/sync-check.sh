@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 # chtparse.py and ggdecode.py are copies. The originals live in the core repo,
 # where chtparse is the reference model the RTL is verified against over the
 # whole libretro database; this app is only a consumer of it. If the two drift,

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Launch the cheat GUI from its own venv, creating it on first run.
 # Everything used is in the Python standard library, so the venv stays empty;
 # it exists so nothing is ever installed into the host Python.

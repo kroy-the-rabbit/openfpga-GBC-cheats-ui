@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Decode Game Boy cheat codes (Game Genie and GameShark) to address/value.
 
 Game Genie, after SameBoy's Core/cheats.c (the reference the RTL parser in

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Read and write the cheat file that sits next to a ROM.
 
 The file on the card *is* the state: it holds exactly the cheats the user chose,

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Tk front end: pick a card, a system, a game, tick cheats, send to the Pocket.
 
 Three panes, left to right: systems on the card, games in the selected system,

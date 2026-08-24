@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Cartridges you own, and the cheat file each one uses.
 
 A cartridge is not a file on the card, so it never appears in the game list,

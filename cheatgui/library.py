@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Index of the libretro cheat database, restricted to the systems we support."""
 from __future__ import annotations
 

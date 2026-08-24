@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Headless view of what the GUI would show, for checking without a screen.
 
     tools/cheatgui/run.sh --list           every game

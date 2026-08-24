@@ -40,3 +40,10 @@ cards has no business in that diff. The two share a cheat file parser; see
 
 Python 3.10 or newer with tkinter (`sudo dnf install python3-tkinter` on
 Fedora), and a Pocket SD card with `Cores/` and `Platforms/` on it.
+
+## License
+
+GPL-3.0-or-later. `cheats/chtparse.py` is a copy of the reference parser from
+[openfpga-GBC-cheats](https://github.com/kroy-the-rabbit/openfpga-GBC-cheats),
+which is GPL-3.0-or-later as part of that core, and this app is built around
+it. Files here carry SPDX headers saying the same.
