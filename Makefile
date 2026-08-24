@@ -26,11 +26,19 @@ test: sync-check          ## parser self-test and the GUI tests
 	$(PY) cheats/ggdecode.py --test
 	$(PY) -W ignore::ResourceWarning -m unittest discover -s tests -v
 
-dist:                     ## build the binary for this platform
-	$(PY) -m pip install --quiet --upgrade pyinstaller
-	$(PY) -m PyInstaller --clean --noconfirm \
+# PyInstaller is the one thing the app itself does not need, so it goes in a
+# venv of its own rather than into the system Python, which on most
+# distributions now refuses to be written to at all.
+BUILDVENV = build/venv
+
+dist: $(BUILDVENV)/bin/pyinstaller   ## build the binary for this platform
+	$(BUILDVENV)/bin/pyinstaller --clean --noconfirm \
 		--distpath dist --workpath build/pyi packaging/pocket-cheats.spec
 	@ls -l dist/
+
+$(BUILDVENV)/bin/pyinstaller:
+	$(PY) -m venv $(BUILDVENV)
+	$(BUILDVENV)/bin/pip install --quiet --upgrade pip pyinstaller
 
 clean:                    ## remove build output
 	rm -rf build dist
