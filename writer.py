@@ -24,8 +24,16 @@ def key_of(group) -> tuple:
     return tuple(c.raw for c in group.codes)
 
 
+# Reading a file to choose from is not the same as reading it to run. The core
+# takes the first 32 codes; a libretro file often holds hundreds, and truncating
+# here made everything past the first couple of dozen invisible and unpickable.
+# check() still refuses a selection the core cannot hold.
+NO_LIMIT = 1 << 30
+
+
 def load_library(cht_path: str) -> list:
-    return chtparse.parse(open(cht_path, "rb").read())
+    return chtparse.parse(open(cht_path, "rb").read(),
+                          max_codes=NO_LIMIT, max_groups=NO_LIMIT)
 
 
 def load_installed(game_cht: str) -> set[tuple]:
@@ -33,7 +41,9 @@ def load_installed(game_cht: str) -> set[tuple]:
     if not os.path.exists(game_cht):
         return set()
     try:
-        return {key_of(g) for g in chtparse.parse(open(game_cht, "rb").read())}
+        return {key_of(g) for g in chtparse.parse(open(game_cht, "rb").read(),
+                                                  max_codes=NO_LIMIT,
+                                                  max_groups=NO_LIMIT)}
     except Exception:                                        # noqa: BLE001
         return set()
 
