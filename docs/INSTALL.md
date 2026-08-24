@@ -20,6 +20,12 @@ Nothing is installed and nothing is written outside your home directory: the
 app keeps its settings in `~/.config/pocket-cheats/` and its copy of the cheat
 database in `~/.local/share/pocket-cheats/`.
 
+**Cheats can corrupt save files.** A code aimed at the wrong revision of a game
+overwrites memory the game saves from. Back up saves you care about first, and
+read the cartridge section of the README before using cheats on a cartridge,
+where the save is on the cartridge and nothing on the card is a copy of it.
+Game Boy Advance support is work in progress and does nothing yet.
+
 On first run there is no cheat database. Press **Update** in the bar along the
 bottom and it fetches one, about 12 MB and a minute. That bar is also where you
 see which version you have and whether upstream has a newer one.

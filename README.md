@@ -3,6 +3,21 @@
 A small desktop app for choosing which cheats go on an Analogue Pocket SD card,
 for the Game Boy, Game Boy Color and Game Boy Advance cores.
 
+> **Use at your own risk. Cheats can corrupt save files.**
+>
+> A cheat is not a setting, it is a write into the memory of a running game. A
+> code aimed at an address that means something else in your copy overwrites
+> whatever is there, and games build their save data out of that same memory,
+> so the damage gets written into your save at the next save point. This is
+> most dangerous on a cartridge, where the save lives in the cartridge and
+> nothing on the SD card is a backup of it.
+>
+> Back your saves up before using cheats on anything you care about, and read
+> [Cartridges](#cartridges-read-this-part) before using them on one.
+>
+> **Game Boy Advance support is work in progress.** See
+> [Game Boy Advance](#game-boy-advance-is-work-in-progress).
+
 Three panes: the systems on the card, the games in each, and the cheats for the
 selected game. Tick what you want and press **Send to Pocket**. The file next to
 the ROM *is* the state, so what you see is what the handheld will do.
@@ -14,7 +29,22 @@ of the ticked cheats are GameShark codes, and on a cartridge whose revision you
 cannot check those are the dangerous kind. The **Applied** column says which is
 which, and [Cartridges](#cartridges-read-this-part) explains why it matters.
 
-## Get it
+## The cores it writes for
+
+This app writes cheat files. Reading them is the core's job, and stock Pocket
+cores cannot do it, so the card needs one of these installed or nothing here
+has any effect:
+
+| Core | Covers | Status |
+|---|---|---|
+| [openfpga-GBC-cheats](https://github.com/kroy-the-rabbit/openfpga-GBC-cheats) | Game Boy, Game Boy Color | released, [download](https://github.com/kroy-the-rabbit/openfpga-GBC-cheats/releases) |
+| [openfpga-GBA-cheats](https://github.com/kroy-the-rabbit/openfpga-GBA-cheats) | Game Boy Advance | not released yet, see [below](#game-boy-advance-is-work-in-progress) |
+
+Both are forks that add a cheat engine to somebody else's core, and both keep
+their own install notes. This app is a companion to them: it never touches a
+core, only the `.cht` files beside your ROMs.
+
+## Get the picker
 
 Download a build from the
 [releases page](https://github.com/kroy-the-rabbit/openfpga-GBC-cheats-ui/releases),
@@ -29,12 +59,12 @@ make list ARGS=zelda  # same data, printed, no window
 Full install notes, and how to check the signature on a download, are in
 [docs/INSTALL.md](docs/INSTALL.md).
 
-> **Only the Linux build has been used in anger.** The Windows build has been
-> smoke tested under Wine, where it starts, draws its window and finds a card
-> by drive letter, but nobody has run it on Windows. The macOS build has not
-> been run at all, and is **not notarized**, so it needs one command to get
-> past Gatekeeper. If one of them does not start, that is a bug worth
-> reporting rather than something already known.
+> **Only the Linux build has actually been used.** The Windows build starts and
+> works under Wine, where it draws its window and finds a card by drive letter,
+> but nobody has run it on Windows itself. The macOS build has never been run
+> at all, and is **not notarized**, so it needs one command to get past
+> Gatekeeper. If either does not start, that is a bug worth reporting rather
+> than something already known.
 
 Python 3.10 or newer with tkinter, if you are running from source. Everything
 used is in the standard library, so the venv `run.sh` makes stays empty; it
@@ -101,12 +131,6 @@ A cartridge is not a file on the card. The app never sees it, so:
   wrong one and the core's **Load Cheats** browser will not be looking where
   the file is.
 
-Game Boy Advance cartridges can be listed and prepared the same way, but the
-[GBA core](https://github.com/mincer-ray/openfpga-GBA) does not read cheat
-files yet, so nothing sent to one takes effect until it does. Its codes are
-carried verbatim rather than decoded, so the **Applied** column is blank for
-them and there is no store meter; [docs/CHEATGUI.md](docs/CHEATGUI.md) says
-why.
 * **The name you type is the whole of the matching.** The picker matches cheat
   files by filename. Type `Zelda` and you will be offered files for every Zelda
   ever released on the system. Nothing reads the cartridge.
@@ -120,6 +144,10 @@ why.
 With a ROM on the card, none of this applies. The app reads the actual file,
 matches it, tells you which file it picked, and you can check a Game Genie
 compare byte against the ROM itself. A cartridge gives you none of that.
+
+Game Boy Advance cartridges can be listed and prepared the same way, but see
+[Game Boy Advance](#game-boy-advance-is-work-in-progress) first: nothing sent
+to one does anything yet.
 
 ## What goes wrong, and how
 
@@ -192,6 +220,34 @@ fault: **Cheats enabled** in the core menu is a single global switch.
 
 ---
 
+# Game Boy Advance is work in progress
+
+**Nothing you send to a Game Boy Advance game does anything yet, and when it
+starts working it may not do what this app currently shows.** It is here so
+the cartridges and the files can be prepared in advance, not because it works.
+
+Two separate things are unfinished:
+
+* **The core does not read cheat files.** The
+  [GBA core](https://github.com/mincer-ray/openfpga-GBA) has no cheat data
+  slot, so a file written next to a GBA ROM sits on the card and is ignored.
+  There is nothing this app can do about that.
+* **The codes are carried, not understood.** GBA cheats are CodeBreaker and
+  Action Replay codes, a different language from Game Boy ones. This app
+  copies them through exactly as written rather than decoding them, because
+  guessing at a format no core has defined yet would be worse than admitting
+  it does not know. So the **Applied** column is blank for GBA cheats and
+  there is no code store meter: both describe a core that does not exist.
+
+What that means in practice: the file you write is faithful, and everything
+this app says about *what the cheats will do* is missing rather than wrong.
+When the GBA core defines its cheat format, expect the limits and the
+behavior shown here to change, and expect to have to look again at any files
+you prepared in the meantime.
+
+[docs/CHEATGUI.md](docs/CHEATGUI.md) has the detail, including why running a
+GBA file through the Game Boy parser produces confident nonsense.
+
 ## What it shows
 
 Each cheat says how the core applies it, because the two ways do not behave the
@@ -233,7 +289,7 @@ code, but it exists because of them.
 | [MiSTer-devel/Gameboy_MiSTer](https://github.com/MiSTer-devel/Gameboy_MiSTer) | which that is a port of, carrying Till Harbaum's 2015 copyright and later contributors' |
 | [mincer-ray/openfpga-GBA](https://github.com/mincer-ray/openfpga-GBA) | the Pocket Game Boy Advance core, GPL-2.0 |
 | [MiSTer-devel/GBA_MiSTer](https://github.com/MiSTer-devel/GBA_MiSTer) | which that is a port of, GPL-2.0 |
-| [SameBoy](https://github.com/LIJI32/SameBoy) | `Core/cheats.c`, the reference the Game Genie decoder follows. Expat (MIT) licence, copyright Lior Halphon |
+| [SameBoy](https://github.com/LIJI32/SameBoy) | `Core/cheats.c`, the reference the Game Genie decoder follows. Expat (MIT) license, copyright Lior Halphon |
 | [libretro/libretro-database](https://github.com/libretro/libretro-database) | the cheat files themselves |
 | [Analogue openFPGA](https://www.analogue.co/developer) | the Pocket framework the cores are built on |
 
@@ -248,14 +304,14 @@ of the reference parser from
 which is GPL-3.0-or-later as part of that core; this app is built around them.
 The Game Genie decoding in `ggdecode.py` follows the algorithm in SameBoy's
 `Core/cheats.c` rather than copying its code. SameBoy is under the Expat (MIT)
-licence, copyright Lior Halphon.
+license, copyright Lior Halphon.
 
 **The cheat database is not distributed here.**
 [libretro/libretro-database](https://github.com/libretro/libretro-database) is
 licensed **CC-BY-SA-4.0**, and no part of it is in this repository or in any
 release of this app: it is fetched from upstream at run time, into your own
 data directory. A cheat file this app writes to your card is a selection taken
-from those files, so if you pass one on, CC-BY-SA-4.0 is the licence it came
+from those files, so if you pass one on, CC-BY-SA-4.0 is the license it came
 under and attribution and share-alike are what it asks for.
 
 The two Pocket cores are separate works under their own terms, GPL-2.0 for the

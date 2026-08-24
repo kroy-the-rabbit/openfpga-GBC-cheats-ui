@@ -299,6 +299,10 @@ jobs:
             echo "sha256sum -c SHA256SUMS    # shasum -a 256 -c on macOS"
             echo '```'
             echo
+            echo "**Use at your own risk: cheats can corrupt save files.**"
+            echo "Back up saves you care about. Game Boy Advance support is"
+            echo "work in progress and does nothing yet."
+            echo
             echo "The macOS and Windows builds are **untested**: built and"
             echo "signed by CI, never run by anybody. Only the Linux build has"
             echo "been used."
