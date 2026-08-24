@@ -6,8 +6,12 @@ from functools import lru_cache
 
 import card as card_mod
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DB = os.path.join(ROOT, "external", "libretro-database", "cht")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# POCKET_CHEAT_DB points this at an existing checkout, so a copy of the core
+# repo alongside can share its submodule instead of cloning a second one.
+DB = os.environ.get("POCKET_CHEAT_DB") or os.path.join(
+    ROOT, "external", "libretro-database", "cht")
 
 # Your own cheat files. The libretro database is a git submodule, so anything
 # added there is lost on the next update and dirties the checkout meanwhile;
