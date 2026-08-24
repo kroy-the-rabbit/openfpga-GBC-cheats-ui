@@ -279,7 +279,7 @@ def _windows_mounts() -> list[tuple[str, str]]:
     """Every drive letter that answers. The volume label needs no extra call.
 
     Reading the label is a best effort: a card with none is still a card, and
-    on Windows the letter is what people recognise anyway.
+    on Windows the letter is what people recognize anyway.
     """
     import string
     found = []

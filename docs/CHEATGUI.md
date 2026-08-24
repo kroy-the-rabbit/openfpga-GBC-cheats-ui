@@ -29,7 +29,7 @@ terminal with the window open.
 
 A card that has just been inserted is slow to read the first time: about
 fifteen seconds for three systems on exFAT over USB with nothing cached. That
-is the card, not the app, and it cannot be arranged away. Mounting the card
+is the card, not the app, and no amount of rearranging removes it. Mounting
 before starting the app only feels instant because the desktop has already
 walked it for you.
 
@@ -107,10 +107,12 @@ Pocket**.
 SNES core on the same card ignores cheat files entirely, so offering checkboxes
 there would be a lie.
 
-Game Boy Advance is listed ahead of the core being able to use it. The
-[GBA core](https://github.com/mincer-ray/openfpga-GBA) has no cheat data slot
-yet, so a file sent to a GBA game sits on the card doing nothing until it
-does. It is here so the cartridges and the files can be prepared now.
+**Game Boy Advance is work in progress and nothing sent to it works yet.** The
+[GBA core](https://github.com/mincer-ray/openfpga-GBA) has no cheat data slot,
+so a file written next to a GBA ROM is ignored by the hardware. It is listed
+so the cartridges and the files can be prepared in advance. Expect what this
+app shows for GBA to change once that core defines a cheat format, and expect
+to have to revisit files prepared before then.
 
 ## Game Boy Advance codes are carried, not read
 
@@ -278,6 +280,15 @@ duplicates. Nothing is hidden from the card, only from this tool; change
 `SKIP_DIRS` in `card.py` to list them again.
 
 ## Safety
+
+**Cheats can corrupt save files, and this app cannot tell you when one will.**
+It checks that a cheat file is well formed and that the core can hold it. It
+has no way to check that a code is right for your copy of a game. A GameShark
+code is a write into work RAM, the same memory a game builds its save data
+from, so a code meant for another revision overwrites something else and the
+result reaches your save at the next save point. Back up saves you care about
+before turning cheats on, and see the cartridge section above, where there is
+no backup to take.
 
 Writes go only to a directory that has both `Cores/` and `Platforms/`, so a muOS
 or plain ROM card cannot be mistaken for a Pocket card. An existing cheat file is
