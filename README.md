@@ -77,7 +77,14 @@ this tool or in the core can do it for you or tell you that you got it wrong.**
 A cartridge is not a file on the card. The app never sees it, so:
 
 * It **never appears in the game list.** You add it yourself: the **Cartridges**
-  entry in the systems pane, **Add cartridge...**, and you type the name.
+  entry in the systems pane, **Add cartridge...**, then type the name and say
+  which system it is for. Your cartridges are then listed under **Game Boy**
+  and **Game Boy Color** headings, and **Move to...** refiles one that went in
+  under the wrong heading.
+* **The system is not cosmetic.** It decides which folder on the card the
+  cheat file is written to, `Assets/gb/common/Cartridges/` or
+  `Assets/gbc/common/Cartridges/`. Choose the wrong one and the core's
+  **Load Cheats** browser will not be looking where the file is.
 * **The name you type is the whole of the matching.** The picker matches cheat
   files by filename. Type `Zelda` and you will be offered files for every Zelda
   ever released on the system. Nothing reads the cartridge.

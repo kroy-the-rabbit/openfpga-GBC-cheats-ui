@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import messagebox, ttk
 
 import card as card_mod
 import carts
@@ -28,6 +28,7 @@ import writer
 
 TICK, UNTICK = "☑", "☐"
 CARTS = "carts"        # iid of the Cartridges row in the systems pane
+GROUP = "sys:"         # iid prefix of a system heading in the cartridge pane
 
 
 class App(ttk.Frame):
@@ -93,6 +94,9 @@ class App(ttk.Frame):
         self.del_btn = ttk.Button(cartbar, text="Remove", width=9,
                                   command=self.remove_cart, state="disabled")
         self.del_btn.pack(side="left", padx=4)
+        self.move_btn = ttk.Button(cartbar, text="Move", width=13,
+                                   command=self.move_cart, state="disabled")
+        self.move_btn.pack(side="left")
 
         right = ttk.Frame(self)
         right.grid(row=1, column=2, sticky="nsew", padx=(8, 0))
@@ -272,7 +276,8 @@ class App(ttk.Frame):
         self.systems.delete(*self.systems.get_children())
         self.gamelist.delete(*self.gamelist.get_children())
         self.cheats.delete(*self.cheats.get_children())
-        for b in (self.save_btn, self.source_btn, self.del_btn, self.add_btn):
+        for b in (self.save_btn, self.source_btn, self.del_btn, self.add_btn,
+                  self.move_btn):
             b.state(["disabled"])
         self.source_label.config(text="")
         self.meter.set(0)
@@ -393,6 +398,7 @@ class App(ttk.Frame):
             return
         self.add_btn.state(["!disabled"] if sel[0] == CARTS else ["disabled"])
         self.del_btn.state(["disabled"])
+        self.move_btn.state(["disabled"])
         if sel[0] == CARTS:
             # Retire any platform read still in flight. show_carts() fills the
             # game pane synchronously, so a result arriving after it would
@@ -433,6 +439,7 @@ class App(ttk.Frame):
         if plat is not self.platform:        # the user moved on while we read
             return
         self.gamelist.delete(*self.gamelist.get_children())
+        self.move_btn.state(["disabled"])
         for i, (g, n) in enumerate(zip(plat.games, counts)):
             self.gamelist.insert("", "end", iid=str(i), text=g.name,
                                  values=(n if n else "",))
@@ -440,8 +447,23 @@ class App(ttk.Frame):
                                 f"{len(plat.cheat_files)} with cheats",
                            foreground="#000")
 
+    def platform_name(self, pid: str) -> str:
+        """What the card calls a system, falling back to the bare id.
+
+        The systems pane already shows these names, and a cartridge filed
+        under one should say the same thing rather than a second name for it.
+        """
+        for p in self.platforms:
+            if p.id == pid:
+                return p.name
+        return pid.upper()
+
     def show_carts(self) -> None:
-        """The cartridges you have listed, with the cheats each has installed."""
+        """The cartridges you have listed, filed under the system each is for.
+
+        Rows keep indexing self.games, so the group rows get an iid that is
+        not a number and selected_game() rejects them for free.
+        """
         root = self.card.root if self.card else ""
         self.games = carts.all(root)
         self.gamelist.delete(*self.gamelist.get_children())
@@ -450,38 +472,80 @@ class App(ttk.Frame):
         self.save_btn.state(["disabled"])
         self.source_btn.state(["disabled"])
         self.del_btn.state(["disabled"])
+        self.move_btn.state(["disabled"])
         self.source_label.config(text="")
-        for i, c in enumerate(self.games):
-            n = len(model.writer.load_installed(c.cht_path))
-            self.gamelist.insert("", "end", iid=str(i), text=c.name,
-                                 values=(n if n else "",))
+
+        for pid, positions in carts.grouped(self.games):
+            gid = GROUP + pid
+            self.gamelist.insert(
+                "", "end", iid=gid, open=True,
+                text=f"{self.platform_name(pid)}  ({len(positions)})",
+                tags=("group",))
+            for i in positions:
+                c = self.games[i]
+                n = len(model.writer.load_installed(c.cht_path))
+                self.gamelist.insert(gid, "end", iid=str(i), text=c.name,
+                                     values=(n if n else "",))
         self.status.config(
             text=f"{len(self.games)} cartridges" if self.games else
                  "no cartridges listed yet, press Add", foreground="#000")
 
     def add_cart(self) -> None:
-        name = simpledialog.askstring(
-            "Add cartridge",
-            "Name it as the ROM is named, so cheat files match:\n"
-            "e.g. Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2)",
-            parent=self)
-        if not name:
+        """Name it and say which system it is for.
+
+        The system used to be assumed to be Game Boy Color, which was right
+        often enough to be quietly wrong the rest of the time: it decides
+        which directory the cheat file goes in on the card.
+        """
+        # If a group row is selected, that system is the obvious default.
+        sel = self.gamelist.selection()
+        preset = carts.DEFAULT_PLATFORM
+        if sel and sel[0].startswith(GROUP):
+            preset = sel[0][len(GROUP):]
+        elif isinstance(self.selected_game(), carts.Cartridge):
+            preset = self.selected_game().platform
+
+        result = CartDialog(self, preset, self.platform_name).result
+        if result is None:
             return
-        plat = "gb" if self.systems_platform_guess(name) == "gb" else "gbc"
+        name, plat = result
         if not carts.add(name, plat):
             messagebox.showinfo("Cartridges", f"{name} is already listed.")
             return
+        self.after_cart_change(name)
+
+    def after_cart_change(self, select: str | None = None) -> None:
+        """Redraw the pane and put the selection back on a named cartridge."""
         self.systems.item(CARTS, values=(len(carts.all()),))
         self.show_carts()
+        if select is None:
+            return
         for i, c in enumerate(self.games):
-            if c.name == name:
+            if c.name == select:
+                self.gamelist.see(str(i))
                 self.gamelist.selection_set(str(i))
                 break
 
+    def move_cart(self) -> None:
+        """File the selected cartridge under the other system."""
+        cart = self.selected_game()
+        if not isinstance(cart, carts.Cartridge):
+            return
+        other = self.other_platform(cart.platform)
+        if not messagebox.askyesno(
+                "Cartridges",
+                f"File {cart.name} under {self.platform_name(other)}?\n\n"
+                "The cheat file goes in that system's folder from now on. "
+                "Any file already written under "
+                f"{self.platform_name(cart.platform)} is left where it is."):
+            return
+        carts.set_platform(cart.name, other)
+        self.after_cart_change(cart.name)
+
     @staticmethod
-    def systems_platform_guess(name: str) -> str:
-        """Colour cartridges are the common case; a plain Game Boy title is not."""
-        return "gbc"
+    def other_platform(pid: str) -> str:
+        """There are two, so moving is a flip rather than a choice."""
+        return next(p for p in carts.PLATFORMS if p != pid)
 
     def remove_cart(self) -> None:
         cart = self.selected_game()
@@ -493,8 +557,7 @@ class App(ttk.Frame):
                 "The cheat file already on the card is left alone."):
             return
         carts.remove(cart.name)
-        self.systems.item(CARTS, values=(len(carts.all()),))
-        self.show_carts()
+        self.after_cart_change()
 
     def selected_game(self):
         """The object for the selected row, or None if there is no live one.
@@ -514,9 +577,17 @@ class App(ttk.Frame):
     def on_game(self, _evt=None) -> None:
         game = self.selected_game()
         if game is None:
+            # A system heading, or nothing. Neither is something to act on.
+            self.del_btn.state(["disabled"])
+            self.move_btn.state(["disabled"])
             return
-        self.del_btn.state(["!disabled"] if isinstance(game, carts.Cartridge)
-                           else ["disabled"])
+        is_cart = isinstance(game, carts.Cartridge)
+        self.del_btn.state(["!disabled"] if is_cart else ["disabled"])
+        self.move_btn.state(["!disabled"] if is_cart else ["disabled"])
+        if is_cart:
+            self.move_btn.config(
+                text="Move to " + self.platform_name(
+                    self.other_platform(game.platform)))
         self.status.config(text="loading...", foreground="#000")
         self.worker.submit(lambda: model.load(game), self._loaded, "load")
 
@@ -653,6 +724,69 @@ class App(ttk.Frame):
         self.status.config(
             text=f"wrote {cheats} cheats / {codes} codes to the card",
             foreground="#060")
+
+
+class CartDialog(tk.Toplevel):
+    """Name a cartridge and say which system it is for.
+
+    Its own window rather than simpledialog.askstring, because the system is
+    not optional detail: it decides which folder on the card the cheat file
+    goes in, and the core's file browser opens on that folder.
+    """
+
+    def __init__(self, app, preset: str, name_of) -> None:
+        super().__init__(app)
+        self.result: tuple[str, str] | None = None
+        self.title("Add cartridge")
+        self.transient(app)
+        self.resizable(False, False)
+        self.columnconfigure(0, weight=1)
+
+        body = ttk.Frame(self, padding=10)
+        body.grid(row=0, column=0, sticky="nsew")
+        body.columnconfigure(0, weight=1)
+
+        ttk.Label(body, justify="left", text=(
+            "Name it exactly as the ROM is named, including the region and\n"
+            "revision tags. That name is the whole of the matching:\n\n"
+            "    Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2)"
+        )).grid(row=0, column=0, sticky="w")
+
+        self.entry = ttk.Entry(body, width=64)
+        self.entry.grid(row=1, column=0, sticky="ew", pady=(8, 10))
+
+        systems = ttk.LabelFrame(body, text="System", padding=6)
+        systems.grid(row=2, column=0, sticky="ew")
+        self.platform = tk.StringVar(value=preset)
+        for i, pid in enumerate(carts.PLATFORMS):
+            ttk.Radiobutton(systems, text=name_of(pid), value=pid,
+                            variable=self.platform).grid(row=0, column=i,
+                                                         padx=(0, 12), sticky="w")
+        ttk.Label(body, foreground="#666", wraplength=440, justify="left", text=(
+            "This decides which folder the cheat file goes in on the card. "
+            "Get it wrong and the core's Load Cheats browser will not be "
+            "looking where the file is."
+        )).grid(row=3, column=0, sticky="w", pady=(8, 0))
+
+        row = ttk.Frame(body)
+        row.grid(row=4, column=0, sticky="e", pady=(12, 0))
+        ttk.Button(row, text="Cancel", command=self.destroy).pack(side="right",
+                                                                  padx=(6, 0))
+        ttk.Button(row, text="Add", command=self.ok).pack(side="right")
+
+        self.bind("<Return>", lambda _e: self.ok())
+        self.bind("<Escape>", lambda _e: self.destroy())
+        self.entry.focus_set()
+        self.grab_set()
+        self.wait_window(self)
+
+    def ok(self) -> None:
+        name = self.entry.get().strip()
+        if not name:
+            self.entry.focus_set()
+            return
+        self.result = (name, self.platform.get())
+        self.destroy()
 
 
 class Chooser(tk.Toplevel):

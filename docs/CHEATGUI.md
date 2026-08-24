@@ -117,8 +117,23 @@ into work RAM that can crash the game or end up in its save.
 
 A cartridge is not a file on the card, so it never shows up in the game list.
 The **Cartridges** entry in the systems pane is a list you keep yourself:
-**Add cartridge...**, name it as the ROM is named so cheat files match, and it
-behaves like any other game from there. The list is
+**Add cartridge...**, name it as the ROM is named so cheat files match, say
+which system it is for, and it behaves like any other game from there.
+
+Your cartridges are filed under **Game Boy** and **Game Boy Color** headings,
+each showing how many are under it; a system you own nothing for is not shown
+at all. The heading is a heading, not a game: selecting one leaves **Remove**
+and **Move** greyed out, because there is nothing there to act on.
+
+The system a cartridge is filed under is not cosmetic. It decides which folder
+on the card the cheat file goes in, and the core's **Load Cheats** browser
+opens on that folder, so a cartridge under the wrong heading writes its file
+where nothing will look for it. It used to be assumed to be Game Boy Color,
+which was right often enough to be quietly wrong the rest of the time, so the
+Add dialog asks. **Move to...** refiles one afterwards and carries the
+remembered cheat source with it, since correcting the system should not also
+lose the file you picked. The file already written under the old system is left
+where it is, exactly as **Remove** leaves it. The list is
 `~/.config/pocket-cheats/cartridges.json`, outside the repo; which cheat file
 each one uses is remembered alongside everything else, and **Change source...**
 repoints it. **Remove** drops a cartridge from the list and forgets which file

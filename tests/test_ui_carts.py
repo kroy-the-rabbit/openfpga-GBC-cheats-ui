@@ -22,6 +22,12 @@ import tkinter as tk                                         # noqa: E402
 from tkinter import messagebox                               # noqa: E402
 
 
+def ui_group(pid: str) -> str:
+    """The iid of a system heading in the cartridge pane."""
+    import ui
+    return ui.GROUP + pid
+
+
 def build_db(root_dir: str, names: list[str]) -> str:
     """A cheat database just big enough for matching to have something to do.
 
@@ -172,11 +178,18 @@ class CartPaneTest(unittest.TestCase):
         self.root.update()                    # show_carts() fills the pane now
         self.pump(2.0)                        # the stale read lands in here
 
+        # The cartridge pane is system headings with cartridges under them.
+        # The platform pane is a flat list of ROMs. Anything at the top level
+        # that is not a heading means the stale read landed here.
         rows = self.app.gamelist.get_children()
-        self.assertEqual(len(rows), len(self.app.games),
-                         "the cartridge pane was repainted by a stale read")
-        self.assertEqual([self.app.gamelist.item(i, "text") for i in rows],
-                         [g.name for g in self.app.games])
+        self.assertTrue(rows, "the cartridge pane is empty")
+        for iid in rows:
+            self.assertTrue(iid.startswith(ui_group("")),
+                            "the cartridge pane was repainted by a stale read")
+        leaves = [self.app.gamelist.item(c, "text")
+                  for iid in rows for c in self.app.gamelist.get_children(iid)]
+        self.assertEqual(sorted(leaves),
+                         sorted(g.name for g in self.app.games))
 
         self.app.gamelist.selection_set("0")
         self.pump(0.5)
@@ -208,6 +221,89 @@ class CartPaneTest(unittest.TestCase):
         self.assertEqual(self.carts.all(), [])
         self.assertEqual(self.app.gamelist.get_children(), ())
         self.assertIn("disabled", self.app.del_btn.state())
+
+
+class CartGroupingTest(CartPaneTest):
+    """Cartridges are filed under the system each is for.
+
+    A cartridge's system decides which folder on the card its cheat file goes
+    in, so it has to be visible and correctable rather than assumed.
+    """
+
+    def stock(self) -> None:
+        for name, plat in (("Zelda DX (USA) (Rev 2)", "gbc"),
+                           ("Pokemon Red (USA)", "gb"),
+                           ("Aladdin (USA)", "gb")):
+            self.carts.add(name, plat)
+        self.show_carts()
+
+    def headings(self) -> list[str]:
+        return list(self.app.gamelist.get_children())
+
+    def under(self, pid: str) -> list[str]:
+        return [self.app.gamelist.item(i, "text")
+                for i in self.app.gamelist.get_children(ui_group(pid))]
+
+    def test_each_cartridge_sits_under_its_system(self):
+        self.stock()
+        self.assertEqual(self.headings(), [ui_group("gbc"), ui_group("gb")])
+        self.assertEqual(self.under("gbc"), ["Zelda DX (USA) (Rev 2)"])
+        self.assertEqual(self.under("gb"), ["Aladdin (USA)", "Pokemon Red (USA)"])
+
+    def test_a_heading_says_how_many_are_under_it(self):
+        self.stock()
+        self.assertIn("(2)", self.app.gamelist.item(ui_group("gb"), "text"))
+        self.assertIn("Game Boy", self.app.gamelist.item(ui_group("gb"), "text"))
+
+    def test_a_system_with_none_is_not_shown(self):
+        self.carts.add("Zelda DX (USA) (Rev 2)", "gbc")
+        self.show_carts()
+        self.assertEqual(self.headings(), [ui_group("gbc")])
+
+    def test_rows_still_address_the_right_cartridge(self):
+        """The pane is a tree now; the flat list it indexes into is not."""
+        self.stock()
+        for pid in ("gbc", "gb"):
+            for iid in self.app.gamelist.get_children(ui_group(pid)):
+                cart = self.app.games[int(iid)]
+                self.assertEqual(cart.name, self.app.gamelist.item(iid, "text"))
+                self.assertEqual(cart.platform, pid)
+
+    def test_a_heading_is_not_a_cartridge(self):
+        """Selecting one must not arm Remove, or index into the game list."""
+        self.stock()
+        self.app.gamelist.selection_set(ui_group("gb"))
+        self.pump(0.5)
+        self.assertIsNone(self.app.selected_game())
+        self.assertIn("disabled", self.app.del_btn.state())
+        self.assertIn("disabled", self.app.move_btn.state())
+        self.app.remove_cart()
+        self.app.move_cart()
+        self.pump(0.3)
+        self.assertEqual(len(self.carts.all()), 3)
+
+    def test_moving_refiles_it_and_keeps_it_selected(self):
+        self.stock()
+        target = self.app.gamelist.get_children(ui_group("gb"))[0]
+        name = self.app.gamelist.item(target, "text")
+        self.app.gamelist.selection_set(target)
+        self.pump(0.5)
+        self.assertIn("Game Boy Color", self.app.move_btn.cget("text"))
+
+        self.app.move_cart()
+        self.pump(0.5)
+        self.assertIn(name, self.under("gbc"))
+        self.assertNotIn(name, self.under("gb"))
+        self.assertEqual(self.app.selected_game().name, name)
+
+    def test_removing_the_last_of_a_system_drops_the_heading(self):
+        self.stock()
+        target = self.app.gamelist.get_children(ui_group("gbc"))[0]
+        self.app.gamelist.selection_set(target)
+        self.pump(0.5)
+        self.app.remove_cart()
+        self.pump(0.5)
+        self.assertEqual(self.headings(), [ui_group("gb")])
 
 
 class NoDatabaseTest(CartPaneTest):
