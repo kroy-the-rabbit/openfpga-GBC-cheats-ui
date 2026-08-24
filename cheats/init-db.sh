@@ -3,7 +3,7 @@
 # libretro-database submodule. The full repo is ~830 MB checked out; the two
 # directories we care about are ~12 MB.
 set -euo pipefail
-REPO=$(cd "$(dirname "$0")/../.." && pwd)
+REPO=$(cd "$(dirname "$0")/.." && pwd)
 SUB=external/libretro-database
 
 cd "$REPO"
