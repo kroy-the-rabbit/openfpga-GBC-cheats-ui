@@ -176,8 +176,9 @@ any route, so the game's own logic still sees it and can clamp it.
 
 ## Why it is not in the core repo
 
-The core lives in [`pocket-gbc`](../pocket-gbc), a fork of
-`budude2/openfpga-GBC` that may be PR'd upstream. A desktop app that reads SD
+The core lives in
+[openfpga-GBC-cheats](https://github.com/kroy-the-rabbit/openfpga-GBC-cheats), a
+fork of `budude2/openfpga-GBC` that may be PR'd upstream. A desktop app that reads SD
 cards has no business in that diff. The two share a cheat file parser; see
 [cheats/README.md](cheats/README.md) for how that copy is kept honest.
 
