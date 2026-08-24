@@ -288,13 +288,44 @@ class CartGroupingTest(CartPaneTest):
         name = self.app.gamelist.item(target, "text")
         self.app.gamelist.selection_set(target)
         self.pump(0.5)
-        self.assertIn("Game Boy Color", self.app.move_btn.cget("text"))
+        cart = self.app.selected_game()
 
-        self.app.move_cart()
+        self.app.do_move(cart, "gbc")
         self.pump(0.5)
         self.assertIn(name, self.under("gbc"))
         self.assertNotIn(name, self.under("gb"))
         self.assertEqual(self.app.selected_game().name, name)
+
+    def test_every_other_system_can_be_moved_to(self):
+        """Not just one of them.
+
+        Move named a single destination while there were two systems, where
+        moving is a flip. Adding a third made that silently wrong: "the other
+        one" became whichever came first in the list, and nothing could ever
+        be filed under Game Boy Advance at all.
+        """
+        import carts as carts_mod
+        self.stock()
+        target = self.app.gamelist.get_children(ui_group("gb"))[0]
+        self.app.gamelist.selection_set(target)
+        self.pump(0.5)
+        cart = self.app.selected_game()
+        name = cart.name
+
+        for pid in carts_mod.PLATFORMS:
+            if pid == "gb":
+                continue
+            self.app.do_move(self.app.selected_game(), pid)
+            self.pump(0.4)
+            self.assertIn(name, self.under(pid),
+                          f"a cartridge could not be moved to {pid}")
+            self.assertEqual(self.app.selected_game().name, name)
+
+    def test_the_move_button_label_fits(self):
+        """It rendered as "Move to Game B" on screen: the width truncated it."""
+        self.stock()
+        width = int(self.app.move_btn.cget("width"))
+        self.assertLessEqual(len(self.app.move_btn.cget("text")), width)
 
     def test_removing_the_last_of_a_system_drops_the_heading(self):
         self.stock()

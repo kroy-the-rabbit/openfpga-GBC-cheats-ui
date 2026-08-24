@@ -82,6 +82,15 @@ jobs:
           PY
           grep -n '^VERSION' cheatgui/version.py
 
+      - name: Build the macOS icon from the committed iconset
+        if: matrix.os == 'macos'
+        run: |
+          # iconutil ships with macOS and is the only thing that writes a real
+          # .icns; ImageMagick will write a PNG under that name instead. The
+          # PNGs it needs are committed, so no renderer is required here.
+          iconutil -c icns assets/icon.iconset -o assets/icon.icns
+          file assets/icon.icns
+
       - run: pip install pyinstaller
 
       - name: Build

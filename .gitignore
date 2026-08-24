@@ -9,3 +9,7 @@ __pycache__/
 # Private half of the release signing key, made by
 # packaging/make-release-key.sh. Never commit this.
 /.release-key/
+
+# Built by packaging/make-icons.sh on macOS only; the iconset it comes from is
+# committed, so CI makes this itself.
+/assets/icon.icns

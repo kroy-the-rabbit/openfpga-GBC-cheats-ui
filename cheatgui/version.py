@@ -18,11 +18,34 @@ def version() -> str:
     return os.environ.get("POCKET_CHEATS_VERSION") or VERSION
 
 
+def asset(name: str) -> str:
+    """A file from assets/, wherever this is running from.
+
+    Frozen, PyInstaller unpacks datas next to the executable's temporary root
+    and points sys._MEIPASS at it. From a checkout it is just the repository.
+    """
+    if frozen():
+        base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+        return os.path.join(base, "assets", name)
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(os.path.dirname(here), "assets", name)
+
+
 def frozen() -> bool:
     """True in a packaged build, where there is no repository alongside."""
     return bool(getattr(sys, "frozen", False))
 
 
-def title() -> str:
+def label() -> str:
+    """Short version for the window, always something.
+
+    A checkout says "dev" rather than nothing. The version is here to be read
+    off a screenshot in a bug report, and the builds most likely to be in one
+    are the unreleased ones.
+    """
     v = version()
-    return "Pocket Cheats" + ("" if v.startswith("0.0.0") else f"  {v}")
+    return "dev" if v.startswith("0.0.0") else "v" + v
+
+
+def title() -> str:
+    return f"Pocket Cheats  {label()}"

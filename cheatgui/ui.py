@@ -95,7 +95,7 @@ class App(ttk.Frame):
         self.del_btn = ttk.Button(cartbar, text="Remove", width=9,
                                   command=self.remove_cart, state="disabled")
         self.del_btn.pack(side="left", padx=4)
-        self.move_btn = ttk.Button(cartbar, text="Move", width=13,
+        self.move_btn = ttk.Button(cartbar, text="Move to...", width=11,
                                    command=self.move_cart, state="disabled")
         self.move_btn.pack(side="left")
 
@@ -167,7 +167,11 @@ class App(ttk.Frame):
         self.db_bar = ttk.Progressbar(bar, length=180, mode="determinate")
         self.db_btn = ttk.Button(bar, text="Update", width=8,
                                  command=self.update_db)
-        self.db_btn.grid(row=0, column=2, padx=(6, 0))
+        self.db_btn.grid(row=0, column=3, padx=(6, 0))
+        # Next to the database version, since the two things a bug report
+        # needs are which build this is and which cheat files it was reading.
+        ttk.Label(bar, text=version.label(), foreground="#888").grid(
+            row=0, column=2, padx=(12, 0), sticky="e")
 
     def _tree(self, row: int, col: int, cols, heads, widths) -> ttk.Treeview:
         frame = ttk.Frame(self)
@@ -529,25 +533,43 @@ class App(ttk.Frame):
                 break
 
     def move_cart(self) -> None:
-        """File the selected cartridge under the other system."""
+        """Offer the systems this cartridge is not already filed under.
+
+        A menu rather than a button that names one destination. It was the
+        latter while there were two systems, where moving is a flip; adding
+        Game Boy Advance made that quietly wrong, because "the other one" is
+        whichever came first in the list and nothing could ever be moved to
+        the third. It also does not fit on a button: the label rendered as
+        "Move to Game B".
+        """
         cart = self.selected_game()
         if not isinstance(cart, carts.Cartridge):
             return
-        other = self.other_platform(cart.platform)
+        others = [p for p in carts.PLATFORMS if p != cart.platform]
+        if not others:
+            return
+
+        menu = tk.Menu(self, tearoff=0)
+        for pid in others:
+            menu.add_command(label=self.platform_name(pid),
+                             command=lambda p=pid: self.do_move(cart, p))
+        x = self.move_btn.winfo_rootx()
+        y = self.move_btn.winfo_rooty() + self.move_btn.winfo_height()
+        try:
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
+
+    def do_move(self, cart, pid: str) -> None:
         if not messagebox.askyesno(
                 "Cartridges",
-                f"File {cart.name} under {self.platform_name(other)}?\n\n"
+                f"File {cart.name} under {self.platform_name(pid)}?\n\n"
                 "The cheat file goes in that system's folder from now on. "
                 "Any file already written under "
                 f"{self.platform_name(cart.platform)} is left where it is."):
             return
-        carts.set_platform(cart.name, other)
+        carts.set_platform(cart.name, pid)
         self.after_cart_change(cart.name)
-
-    @staticmethod
-    def other_platform(pid: str) -> str:
-        """There are two, so moving is a flip rather than a choice."""
-        return next(p for p in carts.PLATFORMS if p != pid)
 
     def remove_cart(self) -> None:
         cart = self.selected_game()
@@ -586,10 +608,6 @@ class App(ttk.Frame):
         is_cart = isinstance(game, carts.Cartridge)
         self.del_btn.state(["!disabled"] if is_cart else ["disabled"])
         self.move_btn.state(["!disabled"] if is_cart else ["disabled"])
-        if is_cart:
-            self.move_btn.config(
-                text="Move to " + self.platform_name(
-                    self.other_platform(game.platform)))
         self.status.config(text="loading...", foreground="#000")
         self.worker.submit(lambda: model.load(game), self._loaded, "load")
 
@@ -840,10 +858,32 @@ class Chooser(tk.Toplevel):
         self.destroy()
 
 
+def set_icon(root: tk.Tk) -> None:
+    """The window and taskbar icon.
+
+    Best effort on purpose: a missing or unreadable icon is not a reason to
+    refuse to start, and Tk raises rather than falling back on its own.
+    """
+    try:
+        images = [tk.PhotoImage(file=version.asset(n))
+                  for n in ("icon-64.png", "icon.png")
+                  if os.path.exists(version.asset(n))]
+        if images:
+            root._icons = images          # Tk keeps no reference of its own
+            root.iconphoto(True, *images)
+    except Exception:                                        # noqa: BLE001
+        pass
+
+
 def main() -> int:
     root = tk.Tk()
     root.title(version.title())
-    root.geometry("1080x620")
+    set_icon(root)
+    # Wide enough for a cheat description and its addresses without truncating
+    # either, which 1080 was not: the description column was cutting names off
+    # mid-word. Tall enough for a useful number of rows.
+    root.geometry("1400x820")
+    root.minsize(1100, 600)
     App(root)
     root.mainloop()
     return 0

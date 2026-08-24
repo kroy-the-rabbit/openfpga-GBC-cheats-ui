@@ -33,7 +33,9 @@ a = Analysis(
     [os.path.join(GUI, "__main__.py")],
     pathex=[GUI, SHARED],
     binaries=[],
-    datas=[],
+    # The window icon, which Tk loads at run time from a real file.
+    datas=[(os.path.join(ROOT, "assets", "icon.png"), "assets"),
+           (os.path.join(ROOT, "assets", "icon-64.png"), "assets")],
     hiddenimports=HIDDEN,
     hookspath=[],
     runtime_hooks=[],
@@ -45,6 +47,20 @@ pyz = PYZ(a.pure)
 # A console on Windows would open a black window behind the GUI. On Linux the
 # flag means nothing: a binary started from a terminal keeps that terminal.
 console = sys.platform not in ("win32", "darwin")
+
+# The executable's own icon, which is a different thing from the window icon
+# and has to be a format each platform recognises. The .icns is built from the
+# committed iconset by the mac job; if it is not there, PyInstaller is given
+# nothing rather than something it cannot read.
+def icon_for(platform):
+    name = {"win32": "icon.ico", "darwin": "icon.icns"}.get(platform)
+    if not name:
+        return None
+    path = os.path.join(ROOT, "assets", name)
+    return path if os.path.exists(path) else None
+
+
+ICON = icon_for(sys.platform)
 
 exe = EXE(
     pyz,
@@ -58,6 +74,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=console,
+    icon=ICON,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -71,7 +88,7 @@ if sys.platform == "darwin":
     app = BUNDLE(
         exe,
         name="Pocket Cheats.app",
-        icon=None,
+        icon=ICON,
         bundle_identifier="io.kroy.pocket-cheats",
         info_plist={
             "CFBundleName": "Pocket Cheats",
