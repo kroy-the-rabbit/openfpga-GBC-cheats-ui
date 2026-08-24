@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from dataclasses import dataclass, field
 
 # Only these two have a core that understands cheat files. Everything else on a
@@ -25,6 +26,10 @@ ROM_EXT = {".gb", ".gbc"}
 # cheat database, so they only add noise. Nothing is hidden from the card, only
 # from this tool.
 SKIP_DIRS = {"romhacks"}
+
+
+class EjectError(Exception):
+    """The card could not be unmounted; the message says why."""
 
 
 @dataclass
@@ -116,7 +121,69 @@ class Card:
         return self.scan(pid)[0]
 
     def sync(self) -> None:
-        subprocess.run(["sync"], check=False)
+        """Push writes out of the page cache. Windows does this on close."""
+        if os.name != "nt":
+            subprocess.run(["sync"], check=False)
+
+    def device(self) -> str | None:
+        """The block device this card is mounted from, on Linux."""
+        try:
+            out = subprocess.run(
+                ["findmnt", "-rn", "-o", "SOURCE", "--target", self.root],
+                capture_output=True, text=True, timeout=5, check=True).stdout
+        except Exception:                                    # noqa: BLE001
+            return None
+        return out.strip().splitlines()[0] if out.strip() else None
+
+    def unmount(self) -> str:
+        """Flush writes and unmount the card. Returns what to tell the user.
+
+        Raises EjectError with the tool's own message if it could not be done,
+        which is usually a file still open on the card, and that message names
+        the process. Nothing here forces anything: a card yanked mid-write is
+        the failure this whole tool exists to avoid.
+        """
+        self.sync()
+
+        if sys.platform == "darwin":
+            attempts = [["diskutil", "unmount", self.root]]
+        elif os.name == "nt":
+            drive = os.path.splitdrive(os.path.abspath(self.root))[0]
+            if not drive:
+                raise EjectError(f"{self.root} is not on a drive letter")
+            # The shell's own Eject verb, the same one Explorer uses. There is
+            # no supported command line equivalent.
+            attempts = [["powershell", "-NoProfile", "-Command",
+                         "$sh = New-Object -comObject Shell.Application; "
+                         f"$sh.Namespace(17).ParseName('{drive}')"
+                         ".InvokeVerb('Eject')"]]
+        else:
+            # udisks first: it is what the desktop uses, needs no privilege for
+            # removable media, and powers down the reader afterwards. Plain
+            # umount is the fallback for a card mounted by hand or in fstab.
+            dev = self.device()
+            attempts = []
+            if dev:
+                attempts.append(["udisksctl", "unmount", "-b", dev])
+            attempts.append(["umount", self.root])
+
+        problems = []
+        for cmd in attempts:
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True,
+                                   timeout=30)
+            except FileNotFoundError:
+                problems.append(f"{cmd[0]}: not installed")
+                continue
+            except subprocess.TimeoutExpired:
+                problems.append(f"{cmd[0]}: timed out")
+                continue
+            if r.returncode == 0:
+                return f"{self.root} unmounted, safe to remove"
+            msg = (r.stderr or r.stdout or "").strip().splitlines()
+            problems.append(f"{cmd[0]}: {msg[-1] if msg else 'failed'}")
+
+        raise EjectError("; ".join(problems) or "could not unmount")
 
 
 def looks_like_card(path: str) -> bool:
@@ -124,32 +191,89 @@ def looks_like_card(path: str) -> bool:
     return all(os.path.isdir(os.path.join(path, d)) for d in ("Cores", "Platforms"))
 
 
-def find_cards() -> list[Card]:
-    """Mounted removable volumes that look like a Pocket card.
-
-    POCKET_CARD overrides the search with an explicit path, for a card that
-    mounts somewhere unusual and for testing against a fixture tree.
-    """
-    cards = []
-    forced = os.environ.get("POCKET_CARD")
-    if forced:
-        return [Card(forced, "POCKET_CARD")] if looks_like_card(forced) else []
+def _linux_mounts() -> list[tuple[str, str]]:
+    """(mount point, label) for the places a card gets mounted on Linux."""
     try:
-        # Timeout on purpose. This runs on the Tk thread, and findmnt can block
-        # on an unresponsive mount; without it the whole window hangs with
-        # nothing on screen to say why.
+        # Timeout on purpose. This runs off the Tk thread but still blocks the
+        # scan, and findmnt hangs on an unresponsive mount; without it the
+        # pane sits empty with nothing on screen to say why.
         out = subprocess.run(["findmnt", "-rn", "-o", "TARGET,LABEL"],
                              capture_output=True, text=True, check=True,
                              timeout=5).stdout
     except Exception:                                        # noqa: BLE001
-        return cards
+        return []
+    found = []
     for line in out.splitlines():
         parts = line.split(" ", 1)
         target = parts[0]
         label = parts[1].strip() if len(parts) > 1 else ""
-        if not (target.startswith("/run/media/") or target.startswith("/media/")
-                or target.startswith("/mnt/")):
+        if target.startswith(("/run/media/", "/media/", "/mnt/")):
+            found.append((target, label))
+    return found
+
+
+def _macos_mounts() -> list[tuple[str, str]]:
+    """Everything under /Volumes. The volume name is the label."""
+    found = []
+    try:
+        names = os.listdir("/Volumes")
+    except OSError:
+        return found
+    for name in sorted(names):
+        path = os.path.join("/Volumes", name)
+        if os.path.isdir(path):
+            found.append((path, name))
+    return found
+
+
+def _windows_mounts() -> list[tuple[str, str]]:
+    """Every drive letter that answers. The volume label needs no extra call.
+
+    Reading the label is a best effort: a card with none is still a card, and
+    on Windows the letter is what people recognise anyway.
+    """
+    import string
+    found = []
+    for letter in string.ascii_uppercase:
+        root = f"{letter}:\\"
+        if not os.path.isdir(root):
             continue
-        if looks_like_card(target):
-            cards.append(Card(target, label))
-    return cards
+        label = ""
+        try:
+            import ctypes
+            buf = ctypes.create_unicode_buffer(261)
+            if ctypes.windll.kernel32.GetVolumeInformationW(
+                    ctypes.c_wchar_p(root), buf, ctypes.sizeof(buf),
+                    None, None, None, None, 0):
+                label = buf.value
+        except Exception:                                    # noqa: BLE001
+            pass
+        found.append((root, label or letter + ":"))
+    return found
+
+
+def mounts() -> list[tuple[str, str]]:
+    """Candidate volumes for this platform, before any of them are inspected."""
+    if sys.platform == "darwin":
+        return _macos_mounts()
+    if os.name == "nt":
+        return _windows_mounts()
+    return _linux_mounts()
+
+
+def find_cards() -> list[Card]:
+    """Mounted volumes that look like a Pocket card.
+
+    POCKET_CARD overrides the search with an explicit path, for a card that
+    mounts somewhere unusual and for testing against a fixture tree.
+
+    Each platform is asked a different question, because the answer lives
+    somewhere different: findmnt on Linux, /Volumes on macOS, drive letters on
+    Windows. What makes a card a card is the same everywhere, and
+    looks_like_card() is the only thing that decides it.
+    """
+    forced = os.environ.get("POCKET_CARD")
+    if forced:
+        return [Card(forced, "POCKET_CARD")] if looks_like_card(forced) else []
+    return [Card(path, label) for path, label in mounts()
+            if looks_like_card(path)]
