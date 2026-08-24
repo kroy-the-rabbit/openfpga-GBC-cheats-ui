@@ -1,3 +1,11 @@
 cheatgui/.venv/
 __pycache__/
 *.pyc
+
+# PyInstaller output
+/build/
+/dist/
+
+# Private half of the release signing key, made by
+# packaging/make-release-key.sh. Never commit this.
+/.release-key/
