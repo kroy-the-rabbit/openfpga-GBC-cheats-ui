@@ -82,6 +82,8 @@ def write(game_cht: str, groups: list) -> tuple[int, int]:
         return (0, 0)
 
     text = render(groups)
+    # A cartridge's file goes in its own folder, which will not exist yet.
+    os.makedirs(os.path.dirname(game_cht), exist_ok=True)
     if os.path.exists(game_cht):
         backup(game_cht)
     tmp = game_cht + ".tmp"

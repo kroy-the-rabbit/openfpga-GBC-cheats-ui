@@ -13,14 +13,16 @@ from __future__ import annotations
 
 import os
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox, simpledialog, ttk
 
 import card as card_mod
+import carts
 import library
 import model
 import work
 
 TICK, UNTICK = "☑", "☐"
+CARTS = "carts"        # iid of the Cartridges row in the systems pane
 
 
 class App(ttk.Frame):
@@ -60,9 +62,23 @@ class App(ttk.Frame):
                                   {"#0": 130, "count": 50})
         self.systems.bind("<<TreeviewSelect>>", self.on_system)
 
-        self.gamelist = self._tree(1, 1, ("cheats",), {"#0": "Game", "cheats": "On"},
-                                   {"#0": 240, "cheats": 40})
+        mid = ttk.Frame(self)
+        mid.grid(row=1, column=1, sticky="nsew", padx=(0, 4))
+        mid.columnconfigure(0, weight=1)
+        mid.rowconfigure(0, weight=1)
+        self.gamelist = self._tree_in(mid, ("cheats",),
+                                      {"#0": "Game", "cheats": "On"},
+                                      {"#0": 240, "cheats": 40})
         self.gamelist.bind("<<TreeviewSelect>>", self.on_game)
+
+        cartbar = ttk.Frame(mid)
+        cartbar.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        self.add_btn = ttk.Button(cartbar, text="Add cartridge...", width=16,
+                                  command=self.add_cart, state="disabled")
+        self.add_btn.pack(side="left")
+        self.del_btn = ttk.Button(cartbar, text="Remove", width=9,
+                                  command=self.remove_cart, state="disabled")
+        self.del_btn.pack(side="left", padx=4)
 
         right = ttk.Frame(self)
         right.grid(row=1, column=2, sticky="nsew", padx=(8, 0))
@@ -121,6 +137,9 @@ class App(ttk.Frame):
         frame.grid(row=row, column=col, sticky="nsew", padx=(0, 4))
         frame.columnconfigure(0, weight=1)
         frame.rowconfigure(0, weight=1)
+        return self._tree_in(frame, cols, heads, widths)
+
+    def _tree_in(self, frame, cols, heads, widths) -> ttk.Treeview:
         t = ttk.Treeview(frame, columns=cols, show="tree headings")
         for k, v in heads.items():
             t.heading(k, text=v)
@@ -185,6 +204,9 @@ class App(ttk.Frame):
         for i, p in enumerate(self.platforms):
             self.systems.insert("", "end", iid=str(i), text=p.name,
                                 values=(len(p.games),))
+        # Cartridges are not files on the card, so they are listed separately.
+        self.systems.insert("", "end", iid=CARTS, text="Cartridges",
+                            values=(len(carts.all()),))
         self.status.config(text=f"{sum(len(p.games) for p in self.platforms)} ROMs")
         if self.platforms:
             self.systems.selection_set("0")
@@ -193,6 +215,11 @@ class App(ttk.Frame):
     def on_system(self, _evt=None) -> None:
         sel = self.systems.selection()
         if not sel:
+            return
+        self.add_btn.state(["!disabled"] if sel[0] == CARTS else ["disabled"])
+        self.del_btn.state(["disabled"])
+        if sel[0] == CARTS:
+            self.show_carts()
             return
         plat = self.platforms[int(sel[0])]
         self.games = plat.games
@@ -232,11 +259,69 @@ class App(ttk.Frame):
                                 f"{len(plat.cheat_files)} with cheats",
                            foreground="#000")
 
+    def show_carts(self) -> None:
+        """The cartridges you have listed, with the cheats each has installed."""
+        root = self.card.root if self.card else ""
+        self.games = carts.all(root)
+        self.gamelist.delete(*self.gamelist.get_children())
+        self.cheats.delete(*self.cheats.get_children())
+        self.view = None
+        self.save_btn.state(["disabled"])
+        self.source_btn.state(["disabled"])
+        self.source_label.config(text="")
+        for i, c in enumerate(self.games):
+            n = len(model.writer.load_installed(c.cht_path))
+            self.gamelist.insert("", "end", iid=str(i), text=c.name,
+                                 values=(n if n else "",))
+        self.status.config(
+            text=f"{len(self.games)} cartridges" if self.games else
+                 "no cartridges listed yet, press Add", foreground="#000")
+
+    def add_cart(self) -> None:
+        name = simpledialog.askstring(
+            "Add cartridge",
+            "Name it as the ROM is named, so cheat files match:\n"
+            "e.g. Legend of Zelda, The - Link's Awakening DX (USA, Europe) (Rev 2)",
+            parent=self)
+        if not name:
+            return
+        plat = "gb" if self.systems_platform_guess(name) == "gb" else "gbc"
+        if not carts.add(name, plat):
+            messagebox.showinfo("Cartridges", f"{name} is already listed.")
+            return
+        self.systems.item(CARTS, values=(len(carts.all()),))
+        self.show_carts()
+        for i, c in enumerate(self.games):
+            if c.name == name:
+                self.gamelist.selection_set(str(i))
+                break
+
+    @staticmethod
+    def systems_platform_guess(name: str) -> str:
+        """Colour cartridges are the common case; a plain Game Boy title is not."""
+        return "gbc"
+
+    def remove_cart(self) -> None:
+        sel = self.gamelist.selection()
+        if not sel or self.systems.selection()[:1] != (CARTS,):
+            return
+        cart = self.games[int(sel[0])]
+        if not messagebox.askyesno(
+                "Cartridges",
+                f"Remove {cart.name} from the list?\n\n"
+                "The cheat file already on the card is left alone."):
+            return
+        carts.remove(cart.name)
+        self.systems.item(CARTS, values=(len(carts.all()),))
+        self.show_carts()
+
     def on_game(self, _evt=None) -> None:
         sel = self.gamelist.selection()
         if not sel:
             return
         game = self.games[int(sel[0])]
+        self.del_btn.state(["!disabled"] if isinstance(game, carts.Cartridge)
+                           else ["disabled"])
         self.status.config(text="loading...", foreground="#000")
         self.worker.submit(lambda: model.load(game), self._loaded, "load")
 
@@ -291,7 +376,13 @@ class App(ttk.Frame):
         msg = f"{len(v.enabled)} of {len(v.entries)} on, {codes} codes"
         if written or patched:
             msg += f" ({written} written, {patched} patched)"
-        problems = v.problems
+        problems = list(v.problems)
+        # On a cartridge you cannot check the revision, and the two kinds of
+        # code fail differently when it is wrong: a Game Genie patch carries a
+        # compare byte and simply never fires, while a GameShark code is a real
+        # write to an address that may hold something else entirely.
+        if isinstance(v.game, carts.Cartridge) and written:
+            problems.append(f"{written} written codes: unverifiable on a cartridge")
         if problems:
             msg += "   " + "; ".join(problems)
         self.status.config(text=msg, foreground="#a00" if problems else "#000")
