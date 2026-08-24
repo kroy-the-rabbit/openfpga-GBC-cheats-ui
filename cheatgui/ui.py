@@ -18,9 +18,11 @@ from tkinter import messagebox, simpledialog, ttk
 
 import card as card_mod
 import carts
+import db
 import library
 import meter
 import model
+import version
 import work
 import writer
 
@@ -39,11 +41,17 @@ class App(ttk.Frame):
         self.platforms: list[card_mod.Platform] = []
         self.platform: card_mod.Platform | None = None
         self.worker = work.Worker(master)
+        # The database fetch gets its own runner: it takes about a minute, and
+        # card reads must not queue behind it.
+        self.dbjob = work.Job(master)
+        self.remote: dict | None = None       # upstream's version, once known
+        self.dbjob_kind = ""                  # "check" or "update", for Stop
         self.games: list[card_mod.Game] = []
         self.view: model.GameView | None = None
 
         self._build()
         self.rescan()
+        self.check_db()
 
     # ---------------------------------------------------------------- layout --
     def _build(self) -> None:
@@ -60,6 +68,9 @@ class App(ttk.Frame):
         self.card_label.grid(row=0, column=1, sticky="w")
         self.rescan_btn = ttk.Button(top, text="Rescan", command=self.rescan)
         self.rescan_btn.grid(row=0, column=2)
+        self.eject_btn = ttk.Button(top, text="Eject", width=7,
+                                    command=self.eject, state="disabled")
+        self.eject_btn.grid(row=0, column=3, padx=(4, 0))
 
         self.systems = self._tree(1, 0, ("count",), {"#0": "System", "count": "ROMs"},
                                   {"#0": 130, "count": 50})
@@ -137,6 +148,21 @@ class App(ttk.Frame):
                                    state="disabled")
         self.save_btn.grid(row=0, column=3, padx=(8, 0))
 
+        self._build_dbbar()
+
+    def _build_dbbar(self) -> None:
+        """Which cheat database is in use, how old it is, and updating it."""
+        bar = ttk.Frame(self)
+        bar.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        bar.columnconfigure(0, weight=1)
+        self.db_label = ttk.Label(bar, text="cheat database: checking...",
+                                  foreground="#666")
+        self.db_label.grid(row=0, column=0, sticky="w")
+        self.db_bar = ttk.Progressbar(bar, length=180, mode="determinate")
+        self.db_btn = ttk.Button(bar, text="Update", width=8,
+                                 command=self.update_db)
+        self.db_btn.grid(row=0, column=2, padx=(6, 0))
+
     def _tree(self, row: int, col: int, cols, heads, widths) -> ttk.Treeview:
         frame = ttk.Frame(self)
         frame.grid(row=row, column=col, sticky="nsew", padx=(0, 4))
@@ -168,11 +194,7 @@ class App(ttk.Frame):
         self.source_btn.state(["disabled"])
         self.source_label.config(text="")
 
-        if not library.available():
-            self.card_label.config(text="cheat database missing", foreground="#a00")
-            self.status.config(text="Run tools/cheats/init-db.sh to fetch it")
-            return
-
+        self.eject_btn.state(["disabled"])
         self.card_label.config(text="scanning...", foreground="#666")
         self.status.config(text="reading the card", foreground="#000")
         self.rescan_btn.state(["disabled"])
@@ -202,6 +224,7 @@ class App(ttk.Frame):
 
         cards, platforms = result
         self.card = cards[0]
+        self.eject_btn.state(["!disabled"])
         self.platforms = platforms
         extra = f"  (+{len(cards) - 1} more)" if len(cards) > 1 else ""
         self.card_label.config(text=f"{self.card.root}  [{self.card.label}]{extra}",
@@ -216,6 +239,153 @@ class App(ttk.Frame):
         if self.platforms:
             self.systems.selection_set("0")
 
+    def eject(self) -> None:
+        """Flush and unmount, so the card can be pulled without losing a write.
+
+        Writing to the card already syncs, but a sync is not an unmount: the
+        filesystem is still mounted and the kernel may still have metadata to
+        write back. This is the same eject the desktop does.
+        """
+        if self.card is None:
+            return
+        card = self.card
+        self.eject_btn.state(["disabled"])
+        self.rescan_btn.state(["disabled"])
+        self.status.config(text="unmounting...", foreground="#000")
+        self.worker.submit(card.unmount, self._ejected, "eject")
+
+    def _ejected(self, message, err) -> None:
+        self.rescan_btn.state(["!disabled"])
+        if err is not None:
+            # Almost always a file still open on the card, and the tool's own
+            # message names what. Nothing is forced: that is the failure this
+            # whole app exists to avoid.
+            self.eject_btn.state(["!disabled"])
+            self.status.config(text=f"could not eject: {err}", foreground="#a00")
+            messagebox.showwarning("Eject", f"The card was not unmounted.\n\n{err}")
+            return
+        self.card = None
+        self.platforms = []
+        self.platform = None
+        self.games = []
+        self.view = None
+        self.systems.delete(*self.systems.get_children())
+        self.gamelist.delete(*self.gamelist.get_children())
+        self.cheats.delete(*self.cheats.get_children())
+        for b in (self.save_btn, self.source_btn, self.del_btn, self.add_btn):
+            b.state(["disabled"])
+        self.source_label.config(text="")
+        self.meter.set(0)
+        self.card_label.config(text="card unmounted, safe to remove",
+                               foreground="#060")
+        self.status.config(text=str(message), foreground="#060")
+
+    # -------------------------------------------------------------- database --
+    def check_db(self) -> None:
+        """Ask upstream what is current, without downloading anything.
+
+        Two API calls. It runs at startup and again after an update, and a
+        failure is not worth a dialog: being offline is not an error, it just
+        means the comparison cannot be made.
+        """
+        self.refresh_db_label()
+        if self.dbjob.busy():
+            return
+        self.dbjob_kind = "check"
+        self.dbjob.start(lambda report, cancelled: db.remote_state(timeout=10),
+                         None, self._db_checked)
+
+    def _db_checked(self, remote, err) -> None:
+        self.dbjob_kind = ""
+        if err is None:
+            self.remote = remote
+        self.refresh_db_label(
+            note="" if err is None else "  (could not reach upstream)")
+
+    def refresh_db_label(self, note: str = "") -> None:
+        local = db.local_state()
+        text = db.describe(local, self.remote) + note
+        stale = self.remote is not None and not db.up_to_date(local, self.remote)
+        self.db_label.config(
+            text=text, foreground="#a00" if local is None else
+            ("#960" if stale else "#666"))
+
+    def update_db(self) -> None:
+        """Check first, then fetch only if there is something to fetch.
+
+        The check doubles as the retry for a failed startup check, which is why
+        there is no separate button for it.
+        """
+        if self.dbjob_kind == "update":
+            self.dbjob.cancel()
+            self.status.config(text="stopping the update...", foreground="#000")
+            return
+        if self.dbjob.busy():
+            # The startup check is two API calls and nearly done; nothing is
+            # gained by cancelling it and it is not what Stop means.
+            self.status.config(text="still checking, try again in a moment",
+                               foreground="#000")
+            return
+
+        def body(report, cancelled):
+            report(0, 0, "asking upstream what is current")
+            remote = db.remote_state()
+            if db.up_to_date(db.local_state(), remote):
+                return ("current", remote)
+            return ("fetched", db.fetch(progress=report, cancelled=cancelled),
+                    remote)
+
+        if not self.dbjob.start(body, self._db_progress, self._db_done):
+            return
+        self.dbjob_kind = "update"
+        self.db_btn.config(text="Stop")
+        self.db_bar.grid(row=0, column=1, padx=(8, 0))
+        self.db_bar.config(value=0, maximum=100)
+
+    def _db_progress(self, done: int, total: int, message: str) -> None:
+        if total:
+            self.db_bar.config(mode="determinate", maximum=total, value=done)
+            self.db_label.config(text=f"{message}  {done}/{total}",
+                                 foreground="#666")
+        else:
+            self.db_bar.config(mode="indeterminate", value=0)
+            self.db_label.config(text=message, foreground="#666")
+
+    def _db_done(self, result, err) -> None:
+        self.dbjob_kind = ""
+        self.db_btn.config(text="Update")
+        self.db_bar.grid_remove()
+        if isinstance(err, db.Cancelled):
+            self.status.config(text="update stopped, the database is unchanged",
+                               foreground="#000")
+            self.refresh_db_label()
+            return
+        if err is not None:
+            self.refresh_db_label(note="  (update failed)")
+            self.status.config(text=f"could not update: {err}", foreground="#a00")
+            messagebox.showerror("Cheat database",
+                                 f"The database was not updated.\n\n{err}\n\n"
+                                 "Whatever was there before is untouched.")
+            return
+
+        if result[0] == "current":
+            self.remote = result[1]
+            self.refresh_db_label()
+            self.status.config(text="cheat database is already up to date",
+                               foreground="#060")
+            return
+
+        _, state, remote = result
+        self.remote = remote
+        # The index is built from the files that were just replaced.
+        library.refresh()
+        self.refresh_db_label()
+        self.status.config(
+            text=f"cheat database updated: {state['files']} files, "
+                 f"{db.day(state['date'])}", foreground="#060")
+        if self.view is not None:
+            self.on_game()
+
     # ----------------------------------------------------------------- panes --
     def on_system(self, _evt=None) -> None:
         sel = self.systems.selection()
@@ -224,6 +394,12 @@ class App(ttk.Frame):
         self.add_btn.state(["!disabled"] if sel[0] == CARTS else ["disabled"])
         self.del_btn.state(["disabled"])
         if sel[0] == CARTS:
+            # Retire any platform read still in flight. show_carts() fills the
+            # game pane synchronously, so a result arriving after it would
+            # otherwise repaint the pane with that platform's ROMs while
+            # self.games still held the cartridges: every row then indexed the
+            # wrong object, and Remove silently did nothing.
+            self.platform = None
             self.show_carts()
             return
         plat = self.platforms[int(sel[0])]
@@ -273,6 +449,7 @@ class App(ttk.Frame):
         self.view = None
         self.save_btn.state(["disabled"])
         self.source_btn.state(["disabled"])
+        self.del_btn.state(["disabled"])
         self.source_label.config(text="")
         for i, c in enumerate(self.games):
             n = len(model.writer.load_installed(c.cht_path))
@@ -307,10 +484,9 @@ class App(ttk.Frame):
         return "gbc"
 
     def remove_cart(self) -> None:
-        sel = self.gamelist.selection()
-        if not sel or self.systems.selection()[:1] != (CARTS,):
+        cart = self.selected_game()
+        if not isinstance(cart, carts.Cartridge):
             return
-        cart = self.games[int(sel[0])]
         if not messagebox.askyesno(
                 "Cartridges",
                 f"Remove {cart.name} from the list?\n\n"
@@ -320,11 +496,25 @@ class App(ttk.Frame):
         self.systems.item(CARTS, values=(len(carts.all()),))
         self.show_carts()
 
-    def on_game(self, _evt=None) -> None:
+    def selected_game(self):
+        """The object for the selected row, or None if there is no live one.
+
+        The pane and self.games are filled from two places, one of them a
+        worker callback, so a row index is checked rather than trusted.
+        """
         sel = self.gamelist.selection()
         if not sel:
+            return None
+        try:
+            idx = int(sel[0])
+        except ValueError:
+            return None
+        return self.games[idx] if 0 <= idx < len(self.games) else None
+
+    def on_game(self, _evt=None) -> None:
+        game = self.selected_game()
+        if game is None:
             return
-        game = self.games[int(sel[0])]
         self.del_btn.state(["!disabled"] if isinstance(game, carts.Cartridge)
                            else ["disabled"])
         self.status.config(text="loading...", foreground="#000")
@@ -498,7 +688,7 @@ class Chooser(tk.Toplevel):
 
 def main() -> int:
     root = tk.Tk()
-    root.title("Pocket Cheats")
+    root.title(version.title())
     root.geometry("1080x620")
     App(root)
     root.mainloop()

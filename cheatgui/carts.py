@@ -81,7 +81,17 @@ def add(name: str, platform: str = "gbc") -> bool:
     return True
 
 
-def remove(name: str) -> None:
-    _save([r for r in _load() if r["name"] != name])
+def remove(name: str) -> bool:
+    """Drop a cartridge from the list. False if it was not listed.
+
+    Matched the way add() rejects duplicates, case insensitively, so the two
+    cannot disagree about whether a name is already there.
+    """
+    rows = _load()
+    keep = [r for r in rows if r["name"].lower() != name.lower()]
+    if len(keep) == len(rows):
+        return False
+    _save(keep)
     prefs.set_source(f"cart:gbc:{name}", None)
     prefs.set_source(f"cart:gb:{name}", None)
+    return True
