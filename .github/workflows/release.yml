@@ -40,7 +40,10 @@ jobs:
           - runner: ubuntu-22.04
             os: linux
             arch: x86_64
-          - runner: macos-13
+          # GitHub retired the macos-13 Intel runners; macos-15-intel is the
+          # replacement label. Without this the Intel job queues forever and
+          # the publish job, which needs the whole matrix, never runs.
+          - runner: macos-15-intel
             os: macos
             arch: x86_64
           - runner: macos-14
