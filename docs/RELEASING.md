@@ -28,10 +28,14 @@ Apple Silicon only on macOS. GitHub retired the Intel runners, and an Intel
 build is not worth keeping a second macOS job alive for; an Intel Mac runs it
 from a checkout, which [INSTALL.md](INSTALL.md) covers.
 
-Only the Linux artifact has ever been run. The macOS and Windows ones are
-built, signed and shape-checked by CI and are otherwise unproven; both
-[INSTALL.md](INSTALL.md) and the README say so, and should keep saying so
-until somebody has actually launched them.
+Linux is the artifact that gets used. Windows is smoke tested under Wine by
+`make wine-test`, which starts the exe on a virtual display, checks that it
+drew something rather than merely staying alive, and exposes a fixture card as
+a drive letter so the Windows-only drive enumeration is exercised. macOS is
+built, signed and shape checked and nothing more.
+
+Both [INSTALL.md](INSTALL.md) and the README say exactly that, and should keep
+saying it until somebody has launched them on the real thing.
 
 Nothing is bundled but Python and Tk. The cheat database is fetched by the app
 on first run, so no third-party cheat content ships in a release and the

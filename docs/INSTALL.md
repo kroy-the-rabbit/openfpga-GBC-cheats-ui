@@ -1,9 +1,18 @@
 # Installing the picker
 
-> **Only the Linux build has been run by anybody.** The macOS and Windows
-> builds are produced and signed by CI and are otherwise untested: the files
-> are the right shape and the signatures verify, but no one has launched them.
-> Treat them as unproven, and please report whatever happens.
+> **How much each build has actually been exercised**, so you can judge what
+> you are downloading:
+>
+> * **Linux** is the one that gets used. Built, run, and used against a real
+>   Pocket card.
+> * **Windows** is smoke tested under Wine on every check: it starts, draws its
+>   whole window, and finds a card by enumerating drive letters. Nobody has run
+>   it on Windows itself, and **Eject** is the one thing Wine cannot exercise,
+>   because it calls a shell verb that Wine does not provide.
+> * **macOS** has not been run at all. It is built, signed and shape checked by
+>   CI and nothing more.
+>
+> Please report whatever happens on the two that are not Linux.
 
 One file per platform, on the
 [releases page](https://github.com/kroy-the-rabbit/openfpga-GBC-cheats-ui/releases).
@@ -55,7 +64,9 @@ a card mounted by hand may need unmounting by hand.
 
 ## Windows
 
-**Untested.** Nobody has run this build. What follows is what should happen.
+**Not tested on Windows**, but smoke tested under Wine: it starts, draws its
+window, and finds a card by drive letter. `packaging/wine-smoke.sh` is what
+does that, and `make wine-test` runs it against a build.
 
 Run the `.exe`. There is no installer.
 
@@ -64,7 +75,9 @@ Authenticode certificate. "More info" then "Run anyway". Verify the GPG
 signature above if you want an actual assurance about where the file came from,
 which is more than a code signing certificate would tell you anyway.
 
-**Eject** uses the same shell command Explorer's own eject does.
+**Eject** uses the same shell command Explorer's own eject does. This is the
+one part Wine cannot stand in for, so it is the least proven thing in the
+Windows build. If it fails it says so and leaves the card mounted.
 
 ## macOS
 

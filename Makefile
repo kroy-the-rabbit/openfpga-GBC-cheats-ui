@@ -40,5 +40,27 @@ $(BUILDVENV)/bin/pyinstaller:
 	$(PY) -m venv $(BUILDVENV)
 	$(BUILDVENV)/bin/pip install --quiet --upgrade pip pyinstaller
 
+WINEIMAGE ?= localhost/pocket-wine:1
+EXE ?= $(wildcard dist/*.exe)
+
+wine-image:               ## container with Wine, for the Windows smoke test
+	podman build --security-opt label=disable -t $(WINEIMAGE) \
+		-f packaging/Containerfile.wine packaging
+
+# Proves the Windows build starts, draws, and finds a card by drive letter.
+# Not a substitute for Windows: Eject calls a shell verb Wine does not have.
+#   make wine-test EXE=path/to/pocket-cheats-x.y.z-windows-x64.exe
+wine-test: wine-image     ## run the Windows build under Wine
+	@test -n "$(EXE)" || { echo "set EXE=path/to/the.exe"; exit 1; }
+	mkdir -p build/wine build/wine/card/Cores build/wine/card/Platforms
+	printf '{"platform":{"name":"Game Boy Color"}}' \
+		> build/wine/card/Platforms/gbc.json
+	mkdir -p "build/wine/card/Assets/gbc/common"
+	podman run --rm --security-opt label=disable \
+		-v "$(abspath $(EXE)):/exe/app.exe:ro" \
+		-v "$(CURDIR)/build/wine/card:/card:ro" \
+		-v "$(CURDIR)/build/wine:/out" \
+		$(WINEIMAGE) /exe/app.exe 35
+
 clean:                    ## remove build output
 	rm -rf build dist

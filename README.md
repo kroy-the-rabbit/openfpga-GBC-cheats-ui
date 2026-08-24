@@ -22,11 +22,12 @@ make list ARGS=zelda  # same data, printed, no window
 Full install notes, and how to check the signature on a download, are in
 [docs/INSTALL.md](docs/INSTALL.md).
 
-> **The macOS and Windows builds are untested.** They are built and signed by
-> CI, and nobody has run either of them. Only the Linux build has been used.
-> They are offered on that basis: if one does not start, that is a bug worth
-> reporting, not something already known to work. The macOS build is also
-> **not notarized** and needs one command to get past Gatekeeper.
+> **Only the Linux build has been used in anger.** The Windows build has been
+> smoke tested under Wine, where it starts, draws its window and finds a card
+> by drive letter, but nobody has run it on Windows. The macOS build has not
+> been run at all, and is **not notarized**, so it needs one command to get
+> past Gatekeeper. If one of them does not start, that is a bug worth
+> reporting rather than something already known.
 
 Python 3.10 or newer with tkinter, if you are running from source. Everything
 used is in the standard library, so the venv `run.sh` makes stays empty; it
