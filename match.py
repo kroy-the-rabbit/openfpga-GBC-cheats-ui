@@ -42,6 +42,11 @@ class Candidate:
     path: str
 
     @property
+    def local(self) -> bool:
+        """One of yours, rather than from the libretro database."""
+        return library.is_local(self.path)
+
+    @property
     def name(self) -> str:
         return os.path.splitext(os.path.basename(self.path))[0]
 
@@ -67,7 +72,9 @@ def rank(rom_name: str, platform: str, limit: int = 8) -> list[Candidate]:
             score = max(score, 0.95)
         detail = difflib.SequenceMatcher(None, target_full, normalize_full(p)).ratio()
         scored.append(Candidate(score, detail, p))
-    scored.sort(key=lambda c: (-c.score, -c.detail, len(c.name)))
+    # Yours wins an otherwise exact tie: if you wrote a file for this ROM, that
+    # is the one you meant, whatever the database also happens to have.
+    scored.sort(key=lambda c: (-c.score, -c.detail, not c.local, len(c.name)))
     return scored[:limit]
 
 

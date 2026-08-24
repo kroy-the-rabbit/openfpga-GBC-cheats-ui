@@ -255,9 +255,19 @@ class App(ttk.Frame):
         self.cheats.delete(*self.cheats.get_children())
         if v is None:
             return
-        self.source_label.config(
-            text=("source: " + os.path.basename(v.source)) if v.source
-            else "no matching cheat file found")
+        if v.source:
+            marks = []
+            if library.is_local(v.source):
+                marks.append("yours")
+            if v.pinned:
+                # otherwise a remembered choice silently beats a file you just
+                # wrote, and there is nothing on screen to say why
+                marks.append("pinned")
+            mark = ("  (" + ", ".join(marks) + ")") if marks else ""
+            label = "source: " + os.path.basename(v.source) + mark
+        else:
+            label = "no matching cheat file found"
+        self.source_label.config(text=label)
         for i, e in enumerate(v.entries):
             tags = []
             if not e.in_library:
@@ -365,7 +375,9 @@ class Chooser(tk.Toplevel):
         self.list = tk.Listbox(self, width=78, height=12)
         self.list.grid(row=1, column=0, sticky="nsew", padx=8)
         for c in view.alternates:
-            self.list.insert("end", f"{c.score:.2f}  {os.path.basename(c.path)}")
+            mark = "* " if c.local else "  "
+            self.list.insert("end",
+                             f"{mark}{c.score:.2f}  {os.path.basename(c.path)}")
         if view.alternates:
             self.list.selection_set(0)
 

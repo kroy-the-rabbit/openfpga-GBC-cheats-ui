@@ -64,6 +64,7 @@ class GameView:
     source: str | None       # cheat file the entries came from
     entries: list[Entry]
     alternates: list         # match.Candidate
+    pinned: bool = False     # source came from a remembered choice, not matching
 
     @property
     def enabled(self) -> list[Entry]:
@@ -92,10 +93,12 @@ class GameView:
 def load(game, source: str | None = None) -> GameView:
     """Build the view for one game, honouring a pinned source if there is one."""
     alternates = match.rank(game.name, game.platform)
+    pinned = False
     if source is None:
         source = prefs.get_source(game.path)
         if source and not os.path.exists(source):
             source = None
+        pinned = source is not None
     if source is None:
         top = alternates[0] if alternates else None
         source = top.path if top and top.score >= 0.72 else None
@@ -114,7 +117,7 @@ def load(game, source: str | None = None) -> GameView:
     # anything installed that the library file does not know about
     extra = [Entry(g, True, False) for g in installed_groups
              if writer.key_of(g) not in lib_keys]
-    return GameView(game, source, extra + entries, alternates)
+    return GameView(game, source, extra + entries, alternates, pinned)
 
 
 def pin(game, cht_path: str | None) -> None:

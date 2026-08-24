@@ -9,6 +9,24 @@ import card as card_mod
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DB = os.path.join(ROOT, "external", "libretro-database", "cht")
 
+# Your own cheat files. The libretro database is a git submodule, so anything
+# added there is lost on the next update and dirties the checkout meanwhile;
+# this lives outside the repo and is searched first, so a file you wrote wins
+# ties against the stock one of the same name. Name it after the ROM, exactly
+# as the ROM is named, and it will match: the picker compares filenames.
+LOCAL = os.path.join(
+    os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
+    "pocket-cheats", "cht")
+
+
+def local_dir() -> str:
+    os.makedirs(LOCAL, exist_ok=True)
+    return LOCAL
+
+
+def is_local(path: str) -> bool:
+    return os.path.abspath(path).startswith(os.path.abspath(LOCAL))
+
 
 class MissingDatabase(Exception):
     pass
@@ -32,6 +50,12 @@ def files_for(platform: str) -> tuple[str, ...]:
         dirs.remove(own)
         dirs.insert(0, own)
     out: list[str] = []
+    # yours first: an exact-name tie should land on the file you wrote
+    if os.path.isdir(LOCAL):
+        for dirpath, _sub, files in os.walk(LOCAL):
+            for f in sorted(files):
+                if f.endswith(".cht"):
+                    out.append(os.path.join(dirpath, f))
     for d in dirs:
         full = os.path.join(DB, d)
         if not os.path.isdir(full):
