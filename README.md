@@ -20,8 +20,13 @@ make list ARGS=zelda  # same data, printed, no window
 ```
 
 Full install notes, and how to check the signature on a download, are in
-[docs/INSTALL.md](docs/INSTALL.md). The macOS builds are **not notarized** and
-need one command to get past Gatekeeper; that is in there too.
+[docs/INSTALL.md](docs/INSTALL.md).
+
+> **The macOS and Windows builds are untested.** They are built and signed by
+> CI, and nobody has run either of them. Only the Linux build has been used.
+> They are offered on that basis: if one does not start, that is a bug worth
+> reporting, not something already known to work. The macOS build is also
+> **not notarized** and needs one command to get past Gatekeeper.
 
 Python 3.10 or newer with tkinter, if you are running from source. Everything
 used is in the standard library, so the venv `run.sh` makes stays empty; it
@@ -31,9 +36,11 @@ Full guide: [docs/CHEATGUI.md](docs/CHEATGUI.md).
 
 ## The cheat database
 
-The app needs the libretro cheat database, 2456 files for these two systems.
-It has none on first run: press **Update** in the bar along the bottom and it
-fetches one, about 12 MB and a minute.
+The app needs the libretro cheat database, about 3000 files across the three
+systems. It has none on first run: press **Update** in the bar along the
+bottom and it fetches one, roughly 15 MB and a minute. It comes from
+[libretro/libretro-database](https://github.com/libretro/libretro-database)
+and is CC-BY-SA-4.0; none of it is shipped with this app.
 
 That bar is also the version display. It says how many files you have and what
 they are dated, and it checks upstream on startup, so you can see at a glance
@@ -82,9 +89,16 @@ A cartridge is not a file on the card. The app never sees it, so:
   and **Game Boy Color** headings, and **Move to...** refiles one that went in
   under the wrong heading.
 * **The system is not cosmetic.** It decides which folder on the card the
-  cheat file is written to, `Assets/gb/common/Cartridges/` or
-  `Assets/gbc/common/Cartridges/`. Choose the wrong one and the core's
-  **Load Cheats** browser will not be looking where the file is.
+  cheat file is written to, `Assets/<system>/common/Cartridges/`. Choose the
+  wrong one and the core's **Load Cheats** browser will not be looking where
+  the file is.
+
+Game Boy Advance cartridges can be listed and prepared the same way, but the
+[GBA core](https://github.com/mincer-ray/openfpga-GBA) does not read cheat
+files yet, so nothing sent to one takes effect until it does. Its codes are
+carried verbatim rather than decoded, so the **Applied** column is blank for
+them and there is no store meter; [docs/CHEATGUI.md](docs/CHEATGUI.md) says
+why.
 * **The name you type is the whole of the matching.** The picker matches cheat
   files by filename. Type `Zelda` and you will be offered files for every Zelda
   ever released on the system. Nothing reads the cartridge.
@@ -200,16 +214,42 @@ make sync-check    # is the shared parser still in step with the core?
 Releasing, signing and the state of macOS notarization:
 [docs/RELEASING.md](docs/RELEASING.md).
 
+## Credits
+
+This app writes cheat files for other people's cores. It contains none of their
+code, but it exists because of them.
+
+| | |
+|---|---|
+| [budude2/openfpga-GBC](https://github.com/budude2/openfpga-GBC) | the Pocket Game Boy / Game Boy Color core this was written for |
+| [MiSTer-devel/Gameboy_MiSTer](https://github.com/MiSTer-devel/Gameboy_MiSTer) | which that is a port of, carrying Till Harbaum's 2015 copyright and later contributors' |
+| [mincer-ray/openfpga-GBA](https://github.com/mincer-ray/openfpga-GBA) | the Pocket Game Boy Advance core, GPL-2.0 |
+| [MiSTer-devel/GBA_MiSTer](https://github.com/MiSTer-devel/GBA_MiSTer) | which that is a port of, GPL-2.0 |
+| [SameBoy](https://github.com/LIJI32/SameBoy) | `Core/cheats.c`, the reference the Game Genie decoder follows. Expat (MIT) licence, copyright Lior Halphon |
+| [libretro/libretro-database](https://github.com/libretro/libretro-database) | the cheat files themselves |
+| [Analogue openFPGA](https://www.analogue.co/developer) | the Pocket framework the cores are built on |
+
 ## License
 
-GPL-3.0-or-later. The full text is in [LICENSE](LICENSE) and every source file
-carries an SPDX header.
+This app is GPL-3.0-or-later. The full text is in [LICENSE](LICENSE), and every
+source file carries an SPDX header saying the same.
 
-`cheats/chtparse.py` and `cheats/ggdecode.py` are copies of the reference parser
-from [openfpga-GBC-cheats](https://github.com/kroy-the-rabbit/openfpga-GBC-cheats),
-which is GPL-3.0-or-later as part of that core, and this app is built around
-them.
+`cheats/chtparse.py` and `cheats/ggdecode.py` are copies, kept byte identical,
+of the reference parser from
+[openfpga-GBC-cheats](https://github.com/kroy-the-rabbit/openfpga-GBC-cheats),
+which is GPL-3.0-or-later as part of that core; this app is built around them.
+The Game Genie decoding in `ggdecode.py` follows the algorithm in SameBoy's
+`Core/cheats.c` rather than copying its code. SameBoy is under the Expat (MIT)
+licence, copyright Lior Halphon.
 
-The libretro cheat database is not distributed here. It is fetched from
-[libretro/libretro-database](https://github.com/libretro/libretro-database) at
-run time and is not part of any release of this app.
+**The cheat database is not distributed here.**
+[libretro/libretro-database](https://github.com/libretro/libretro-database) is
+licensed **CC-BY-SA-4.0**, and no part of it is in this repository or in any
+release of this app: it is fetched from upstream at run time, into your own
+data directory. A cheat file this app writes to your card is a selection taken
+from those files, so if you pass one on, CC-BY-SA-4.0 is the licence it came
+under and attribution and share-alike are what it asks for.
+
+The two Pocket cores are separate works under their own terms, GPL-2.0 for the
+Game Boy Advance one and per-file notices for the Game Boy one. Nothing from
+either is included here.

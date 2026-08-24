@@ -22,6 +22,12 @@ sys.path.insert(1, os.path.join(ROOT, "cheats"))
 import db                                                    # noqa: E402
 
 
+def total(per_dir: int) -> int:
+    """How many files populate() writes. Derived, so adding a system to
+    db.DIRS does not mean editing a pile of hardcoded counts."""
+    return per_dir * len(db.DIRS)
+
+
 def populate(cht: str, per_dir: int = 3) -> None:
     for d in db.DIRS:
         full = os.path.join(cht, d)
@@ -65,7 +71,7 @@ class WhichCopy(Env):
         populate(db.store_cht())
         self.assertTrue(db.available())
         self.assertEqual(db.db_dir(), db.store_cht())
-        self.assertEqual(db.count_files(), 6)
+        self.assertEqual(db.count_files(), total(3))
 
     def test_an_empty_directory_is_not_a_database(self):
         """A registered but un-checked-out submodule is an empty directory."""
@@ -79,7 +85,7 @@ class WhichCopy(Env):
         populate(other, per_dir=1)
         os.environ["POCKET_CHEAT_DB"] = other
         self.assertEqual(db.db_dir(), other)
-        self.assertEqual(db.count_files(), 2)
+        self.assertEqual(db.count_files(), total(1))
 
 
 class SubmoduleFallback(Env):
@@ -88,7 +94,7 @@ class SubmoduleFallback(Env):
         populate(db.SUBMODULE, per_dir=4)
         self.assertTrue(db.available())
         self.assertEqual(db.db_dir(), db.SUBMODULE)
-        self.assertEqual(db.count_files(), 8)
+        self.assertEqual(db.count_files(), total(4))
 
     def test_the_fetched_copy_beats_it(self):
         """Update maintains the fetched copy, so that is the one it must use."""
@@ -96,7 +102,7 @@ class SubmoduleFallback(Env):
         populate(db.SUBMODULE, per_dir=4)
         populate(db.store_cht(), per_dir=1)
         self.assertEqual(db.db_dir(), db.store_cht())
-        self.assertEqual(db.count_files(), 2)
+        self.assertEqual(db.count_files(), total(1))
 
 
 class Versions(Env):
@@ -105,7 +111,7 @@ class Versions(Env):
     def state(self, **kw) -> dict:
         populate(db.store_cht())
         st = {"sha": "a" * 40, "date": "2026-03-14T00:00:00Z",
-              "fetched": "2026-03-15T00:00:00Z", "files": 6,
+              "fetched": "2026-03-15T00:00:00Z", "files": total(3),
               "source": "fetched", "comparable": True}
         st.update(kw)
         os.makedirs(db.store(), exist_ok=True)
@@ -156,7 +162,7 @@ class Versions(Env):
     def test_a_missing_state_file_is_not_a_crash(self):
         populate(db.store_cht())
         local = db.local_state()
-        self.assertEqual(local["files"], 6)
+        self.assertEqual(local["files"], total(3))
         self.assertFalse(local["comparable"])
         self.assertIn("unknown version", db.describe(local))
 
@@ -168,7 +174,7 @@ class Swap(Env):
         new = os.path.join(self.tmp.name, "incoming")
         populate(new, per_dir=2)
         db._swap(new, dest)
-        self.assertEqual(db.count_files(dest), 4)
+        self.assertEqual(db.count_files(dest), total(2))
         self.assertFalse(os.path.exists(new))
         self.assertFalse(os.path.exists(dest + ".old"))
 
@@ -176,7 +182,7 @@ class Swap(Env):
         new = os.path.join(self.tmp.name, "incoming")
         populate(new, per_dir=2)
         db._swap(new, db.store_cht())
-        self.assertEqual(db.count_files(), 4)
+        self.assertEqual(db.count_files(), total(2))
 
 
 if __name__ == "__main__":

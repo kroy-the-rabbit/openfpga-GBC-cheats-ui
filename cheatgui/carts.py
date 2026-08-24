@@ -27,7 +27,7 @@ CARD_DIR = "Cartridges"
 # The systems a cartridge can be filed under, in the order they are shown.
 # These are the two the Pocket has a cheat-reading core for, so there is
 # nothing else a cartridge could sensibly be.
-PLATFORMS = ("gbc", "gb")
+PLATFORMS = ("gbc", "gb", "gba")
 DEFAULT_PLATFORM = "gbc"
 
 

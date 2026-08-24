@@ -27,6 +27,20 @@ def is_local(path: str) -> bool:
     return os.path.abspath(path).startswith(os.path.abspath(LOCAL))
 
 
+# Which database directories to search for a given Pocket platform, best first.
+#
+# Game Boy and Game Boy Color share: plenty of GBC releases are filed under
+# Game Boy and the reverse, because they are "GB Compatible", and the ROM on
+# the card gives no hint which. Game Boy Advance does not share with either.
+# Its codes are a different language, so a Game Boy file matched to a GBA ROM
+# would not be a near miss, it would be nonsense. See cheatfile.py.
+SEARCH = {
+    "gbc": ("gbc", "gb"),
+    "gb":  ("gb", "gbc"),
+    "gba": ("gba",),
+}
+
+
 class MissingDatabase(Exception):
     pass
 
@@ -46,12 +60,8 @@ def _files_for(platform: str, db_dir: str, generation: int) -> tuple[str, ...]:
     if not os.path.isdir(db_dir):
         raise MissingDatabase(
             f"{db_dir} not found. Press Update to fetch the cheat database.")
-    dirs = [card_mod.SUPPORTED[p] for p in ("gbc", "gb") if p in card_mod.SUPPORTED]
-    # search this platform's own directory first, so an exact-name tie prefers it
-    own = card_mod.SUPPORTED.get(platform)
-    if own in dirs:
-        dirs.remove(own)
-        dirs.insert(0, own)
+    dirs = list(SEARCH.get(platform, (platform,)))
+    dirs = [card_mod.SUPPORTED[p] for p in dirs if p in card_mod.SUPPORTED]
     out: list[str] = []
     # yours first: an exact-name tie should land on the file you wrote
     if os.path.isdir(LOCAL):

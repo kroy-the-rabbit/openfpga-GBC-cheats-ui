@@ -22,11 +22,17 @@ OVER = "#a00"
 
 
 class Meter(ttk.Frame):
-    """`limit` wide, filled to `used`. Amber as it fills, red once it cannot."""
+    """`limit` wide, filled to `used`. Amber as it fills, red once it cannot.
 
-    def __init__(self, master, limit: int, width: int = 150, height: int = 10):
+    A limit of None means the core for this system has not defined one. The
+    bar then counts rather than measures: there is nothing to be a fraction
+    of, and drawing one against a made-up number would be worse than drawing
+    none at all.
+    """
+
+    def __init__(self, master, limit, width: int = 150, height: int = 10):
         super().__init__(master)
-        self.limit = max(1, limit)
+        self.set_limit(limit)
         self.w, self.h = width, height
         self.canvas = tk.Canvas(self, width=width, height=height,
                                 highlightthickness=0, bd=0)
@@ -35,13 +41,23 @@ class Meter(ttk.Frame):
         self.label.grid(row=0, column=1, padx=(6, 0))
         self.set(0)
 
-    def set(self, used: int) -> None:
-        over = used - self.limit
-        colour = OVER if over > 0 else (NEAR if used >= self.limit * 0.8 else FILL)
+    def set_limit(self, limit) -> None:
+        """None where the core has no published limit for this system."""
+        self.limit = None if limit is None else max(1, limit)
 
+    def set(self, used: int) -> None:
         c = self.canvas
         c.delete("all")
         c.create_rectangle(0, 0, self.w, self.h, fill=TRACK, outline="")
+
+        if self.limit is None:
+            # Nothing to be a fraction of. Count, and leave the bar empty
+            # rather than drawing a fill against a number nobody published.
+            self.label.config(text=f"{used} codes", foreground="#666")
+            return
+
+        over = used - self.limit
+        colour = OVER if over > 0 else (NEAR if used >= self.limit * 0.8 else FILL)
         filled = round(self.w * min(used, self.limit) / self.limit)
         if used:
             # never draw a filled bar as empty: one code should still show

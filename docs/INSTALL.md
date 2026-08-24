@@ -1,5 +1,10 @@
 # Installing the picker
 
+> **Only the Linux build has been run by anybody.** The macOS and Windows
+> builds are produced and signed by CI and are otherwise untested: the files
+> are the right shape and the signatures verify, but no one has launched them.
+> Treat them as unproven, and please report whatever happens.
+
 One file per platform, on the
 [releases page](https://github.com/kroy-the-rabbit/openfpga-GBC-cheats-ui/releases).
 Nothing is installed and nothing is written outside your home directory: the
@@ -50,6 +55,8 @@ a card mounted by hand may need unmounting by hand.
 
 ## Windows
 
+**Untested.** Nobody has run this build. What follows is what should happen.
+
 Run the `.exe`. There is no installer.
 
 SmartScreen will say the publisher is unknown, because these builds carry no
@@ -60,6 +67,8 @@ which is more than a code signing certificate would tell you anyway.
 **Eject** uses the same shell command Explorer's own eject does.
 
 ## macOS
+
+**Untested.** Nobody has run this build. What follows is what should happen.
 
 **These builds are not notarized.** They carry no Apple Developer ID, so
 Gatekeeper refuses them on first launch with "Apple could not verify ... is

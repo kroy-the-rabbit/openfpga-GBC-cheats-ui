@@ -13,13 +13,19 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 
-# Only these two have a core that understands cheat files. Everything else on a
-# Pocket card ignores them, so the tool does not offer to write any.
+# Pocket platform id -> the libretro cheat database directory for it. Only
+# these have a core that reads cheat files, so the tool does not offer to write
+# any for anything else on the card.
+#
+# The Game Boy Advance core does not read them yet. It is here so that the
+# cartridges and cheat files can be prepared now and be in place when it does;
+# see cheatfile.py for why its codes are carried rather than read.
 SUPPORTED = {
     "gb":  "Nintendo - Game Boy",
     "gbc": "Nintendo - Game Boy Color",
+    "gba": "Nintendo - Game Boy Advance",
 }
-ROM_EXT = {".gb", ".gbc"}
+ROM_EXT = {".gb", ".gbc", ".gba"}
 
 # Folders skipped when listing games. Romhacks are usually pre-patched variants
 # of a ROM that is already in the list, and they do not match anything in the

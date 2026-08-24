@@ -28,6 +28,11 @@ Apple Silicon only on macOS. GitHub retired the Intel runners, and an Intel
 build is not worth keeping a second macOS job alive for; an Intel Mac runs it
 from a checkout, which [INSTALL.md](INSTALL.md) covers.
 
+Only the Linux artifact has ever been run. The macOS and Windows ones are
+built, signed and shape-checked by CI and are otherwise unproven; both
+[INSTALL.md](INSTALL.md) and the README say so, and should keep saying so
+until somebody has actually launched them.
+
 Nothing is bundled but Python and Tk. The cheat database is fetched by the app
 on first run, so no third-party cheat content ships in a release and the
 artifacts stay under 20 MB.

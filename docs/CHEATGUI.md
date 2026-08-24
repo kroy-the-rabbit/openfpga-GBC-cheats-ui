@@ -86,9 +86,45 @@ Three panes: the systems on the card, the games in the selected system, and the
 cheats for the selected game. Tick the ones you want and press **Send to
 Pocket**.
 
-Only **Game Boy** and **Game Boy Color** are listed, because they are the only
-systems whose core reads cheat files. A GBA or NES core on the same card ignores
-them entirely, so offering checkboxes there would be a lie.
+**Game Boy**, **Game Boy Color** and **Game Boy Advance** are listed. An NES or
+SNES core on the same card ignores cheat files entirely, so offering checkboxes
+there would be a lie.
+
+Game Boy Advance is listed ahead of the core being able to use it. The
+[GBA core](https://github.com/mincer-ray/openfpga-GBA) has no cheat data slot
+yet, so a file sent to a GBA game sits on the card doing nothing until it
+does. It is here so the cartridges and the files can be prepared now.
+
+## Game Boy Advance codes are carried, not read
+
+GBA cheats are a different language from Game Boy ones. A CodeBreaker code is
+an eight digit address and a four digit value joined with `+`, like
+`3300786D+00FF`; a Game Boy GameShark code is eight digits meaning something
+else entirely.
+
+Handing a GBA file to the Game Boy parser does not fail, which is the whole
+problem. It sees eight hex digits, reads them as a GameShark code, and reports
+a write of `0x00` to `$6D78`, an address that is not in the code at all. The
+`+00FF` is four digits, matches nothing, and is dropped. Every cheat in the
+file comes out looking plausible and meaning nothing, and a file written back
+from that has lost half of itself.
+
+So GBA files are carried verbatim instead. You can list, pick and send them,
+and the file written to the card is character for character what the database
+had. What you do not get is anything this app would have to invent:
+
+* the **Applied** column is blank, because whether a code is a write or a patch
+  is a property of a core that does not exist yet
+* there is no code store meter, only a count, since no limit has been published
+  to measure against
+* GBA cheat files are matched only against GBA ROMs. Game Boy and Game Boy
+  Color share a search, because a GBC release filed under Game Boy is a near
+  miss worth catching; a Game Boy file matched to a GBA ROM would not be a near
+  miss, it would be nonsense.
+
+When the GBA core defines its cheat format, the decoder goes in
+`cheatgui/cheatfile.py` and the display fills itself in. Until then, refusing
+to guess is the only honest thing this can do.
 
 The **Applied** column says how the core makes each cheat take effect, because
 the two ways do not behave the same:

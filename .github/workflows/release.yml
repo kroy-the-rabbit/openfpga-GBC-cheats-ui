@@ -290,8 +290,12 @@ jobs:
             echo "sha256sum -c SHA256SUMS    # shasum -a 256 -c on macOS"
             echo '```'
             echo
-            echo "The macOS builds are **not notarized**. Gatekeeper will"
-            echo "refuse them on first launch; see docs/INSTALL.md."
+            echo "The macOS and Windows builds are **untested**: built and"
+            echo "signed by CI, never run by anybody. Only the Linux build has"
+            echo "been used."
+            echo
+            echo "The macOS build is also **not notarized**. Gatekeeper will"
+            echo "refuse it on first launch; see docs/INSTALL.md."
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 

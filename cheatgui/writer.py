@@ -14,8 +14,12 @@ from __future__ import annotations
 import os
 import shutil
 
+import cheatfile
 import chtparse   # tools/cheats, put on the path by __main__.py
 
+# The Game Boy core's limits. A system whose core does not exist yet has none
+# that anybody could check, so everything below asks cheatfile per platform
+# rather than assuming these two.
 MAX_CHEATS = chtparse.MAX_GROUPS
 MAX_CODES = chtparse.MAX_CODES
 
@@ -25,26 +29,19 @@ def key_of(group) -> tuple:
     return tuple(c.raw for c in group.codes)
 
 
-# Reading a file to choose from is not the same as reading it to run. The core
-# takes the first 32 codes; a libretro file often holds hundreds, and truncating
-# here made everything past the first couple of dozen invisible and unpickable.
-# check() still refuses a selection the core cannot hold.
-NO_LIMIT = 1 << 30
+NO_LIMIT = cheatfile.NO_LIMIT
 
 
-def load_library(cht_path: str) -> list:
-    return chtparse.parse(open(cht_path, "rb").read(),
-                          max_codes=NO_LIMIT, max_groups=NO_LIMIT)
+def load_library(cht_path: str, platform: str) -> list:
+    return cheatfile.parse(open(cht_path, "rb").read(), platform)
 
 
-def load_installed(game_cht: str) -> set[tuple]:
+def load_installed(game_cht: str, platform: str) -> set[tuple]:
     """Keys of the cheats currently installed for a game."""
     if not os.path.exists(game_cht):
         return set()
     try:
-        return {key_of(g) for g in chtparse.parse(open(game_cht, "rb").read(),
-                                                  max_codes=NO_LIMIT,
-                                                  max_groups=NO_LIMIT)}
+        return {key_of(g) for g in load_library(game_cht, platform)}
     except Exception:                                        # noqa: BLE001
         return set()
 
@@ -59,18 +56,27 @@ def render(groups: list) -> str:
     return "\n".join(lines)
 
 
-def check(groups: list) -> list[str]:
-    """Problems that would stop these cheats working, worst first."""
+def check(groups: list, platform: str) -> list[str]:
+    """Problems that would stop these cheats working, worst first.
+
+    A system whose core does not exist yet has no limits to check against, so
+    nothing is claimed. Making some up would put a number on screen that no
+    hardware agrees with.
+    """
+    limits = cheatfile.limits(platform)
+    if limits is None:
+        return []
+    max_cheats, max_codes = limits
     problems = []
-    if len(groups) > MAX_CHEATS:
-        problems.append(f"{len(groups)} cheats selected, the core reads {MAX_CHEATS}")
+    if len(groups) > max_cheats:
+        problems.append(f"{len(groups)} cheats selected, the core reads {max_cheats}")
     codes = sum(len(g.codes) for g in groups)
-    if codes > MAX_CODES:
-        problems.append(f"{codes} codes selected, the core stores {MAX_CODES}")
+    if codes > max_codes:
+        problems.append(f"{codes} codes selected, the core stores {max_codes}")
     return problems
 
 
-def write(game_cht: str, groups: list) -> tuple[int, int]:
+def write(game_cht: str, groups: list, platform: str) -> tuple[int, int]:
     """Install a selection. Returns (cheats, codes) as the core will see them.
 
     The written file is parsed back before this returns, so a bad write is
@@ -92,7 +98,7 @@ def write(game_cht: str, groups: list) -> tuple[int, int]:
         f.write(text)
     os.replace(tmp, game_cht)
 
-    back = chtparse.parse(open(game_cht, "rb").read())
+    back = load_library(game_cht, platform)
     want = [key_of(g) for g in groups]
     got = [key_of(g) for g in back]
     if got != want:

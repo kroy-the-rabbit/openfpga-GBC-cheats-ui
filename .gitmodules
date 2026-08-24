@@ -3,4 +3,4 @@
 	url = https://github.com/libretro/libretro-database.git
 	shallow = true
 	ignore = dirty
-	sparse-checkout = cht/Nintendo - Game Boy/,cht/Nintendo - Game Boy Color/
+	sparse-checkout = cht/Nintendo - Game Boy/,cht/Nintendo - Game Boy Color/,cht/Nintendo - Game Boy Advance/

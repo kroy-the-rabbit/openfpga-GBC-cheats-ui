@@ -18,6 +18,7 @@ from tkinter import messagebox, ttk
 
 import card as card_mod
 import carts
+import cheatfile
 import db
 import library
 import meter
@@ -141,6 +142,7 @@ class App(ttk.Frame):
         bottom.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         bottom.columnconfigure(0, weight=1)
         self.meter = meter.Meter(bottom, writer.MAX_CODES)
+        self.meter_platform = ""
         self.meter.grid(row=0, column=0, sticky="w")
         self.status = ttk.Label(bottom, text="")
         self.status.grid(row=1, column=0, columnspan=4, sticky="w", pady=(4, 0))
@@ -427,7 +429,7 @@ class App(ttk.Frame):
         Only the games that really have a file are opened. The rest are known
         to have none from the directory listing alone, so they cost nothing.
         """
-        return plat, [len(model.writer.load_installed(g.cht_path))
+        return plat, [len(model.writer.load_installed(g.cht_path, plat.id))
                       if plat.has_cheats(g) else 0 for g in plat.games]
 
     def _listed(self, result, err) -> None:
@@ -483,7 +485,7 @@ class App(ttk.Frame):
                 tags=("group",))
             for i in positions:
                 c = self.games[i]
-                n = len(model.writer.load_installed(c.cht_path))
+                n = len(model.writer.load_installed(c.cht_path, c.platform))
                 self.gamelist.insert(gid, "end", iid=str(i), text=c.name,
                                      values=(n if n else "",))
         self.status.config(
@@ -608,6 +610,14 @@ class App(ttk.Frame):
         self.source_btn.state(["!disabled"])
         self.save_btn.state(["!disabled"])
 
+    def retune_meter(self, platform: str) -> None:
+        """The code store is the core's, so its size follows the system."""
+        if platform == self.meter_platform:
+            return
+        self.meter_platform = platform
+        got = cheatfile.limits(platform)
+        self.meter.set_limit(got[1] if got else None)
+
     def refresh_cheats(self) -> None:
         v = self.view
         self.cheats.delete(*self.cheats.get_children())
@@ -646,12 +656,15 @@ class App(ttk.Frame):
         if v is None:
             self.meter.set(0)
             return
+        self.retune_meter(v.platform)
         codes = sum(len(e.group.codes) for e in v.enabled)
         self.meter.set(codes)
         written, patched = v.applied_counts
         msg = f"{len(v.enabled)} of {len(v.entries)} cheats on"
         if written or patched:
             msg += f" ({written} written, {patched} patched)"
+        elif not cheatfile.decoded(v.platform):
+            msg += "   codes carried as written; this core does not read them yet"
         problems = list(v.problems)
         # On a cartridge you cannot check the revision, and the two kinds of
         # code fail differently when it is wrong: a Game Genie patch carries a

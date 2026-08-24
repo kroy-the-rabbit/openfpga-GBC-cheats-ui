@@ -6,7 +6,7 @@ back on, so it fetches its own copy into the user's data directory. That copy
 is what a released binary uses; a checkout of this repo can still use the git
 submodule, and POCKET_CHEAT_DB overrides both.
 
-Only the two Game Boy directories are fetched, 2456 files and about 12 MB.
+Only the three Game Boy directories are fetched, about 3000 files and 15 MB.
 The whole repository is a 177 MB tarball and 830 MB checked out, nearly all of
 it systems this core cannot run, so the files are taken one at a time from the
 CDN at a pinned commit rather than cloning anything. That also means no git on
@@ -32,10 +32,10 @@ REPO = "libretro/libretro-database"
 API = f"https://api.github.com/repos/{REPO}"
 RAW = f"https://raw.githubusercontent.com/{REPO}"
 
-# The libretro directory names, which are also the names on disk. card.SUPPORTED
-# maps Pocket platform ids to these; both are searched for either platform,
-# because plenty of GBC releases are filed under Game Boy and the reverse.
-DIRS = ("Nintendo - Game Boy", "Nintendo - Game Boy Color")
+# The libretro directory names, which are also the names on disk.
+# card.SUPPORTED maps Pocket platform ids to these.
+DIRS = ("Nintendo - Game Boy", "Nintendo - Game Boy Color",
+        "Nintendo - Game Boy Advance")
 
 # Enough to keep the link busy without looking like a scrape. The files average
 # 5 KB, so this is latency bound rather than bandwidth bound.
@@ -176,11 +176,11 @@ def local_state() -> dict | None:
 
 
 def remote_state(timeout: int = TIMEOUT) -> dict:
-    """Upstream's newest commit that touched either Game Boy directory.
+    """Upstream's newest commit that touched any of the Game Boy directories.
 
-    Not the repository head. That moves several times a week for systems this
-    core cannot run, and comparing against it would report an update every time
-    somebody edited a PlayStation cheat file.
+    Not the repository head. That moves several times a week for systems the
+    Pocket has no core for, and comparing against it would report an update
+    every time somebody edited a PlayStation cheat file.
     """
     best = None
     for d in DIRS:
