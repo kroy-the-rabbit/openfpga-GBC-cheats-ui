@@ -100,6 +100,13 @@ class CartPaneTest(unittest.TestCase):
         db.remote_state = lambda timeout=None: {
             "sha": "0" * 40, "date": "2026-01-01T00:00:00Z"}
         self.db = db
+        # Same reason: the app also asks the core's release page what is
+        # current on the way up.
+        import core
+        self._latest = core.latest
+        core.latest = lambda timeout=None: {
+            "tag": "v0.0.0", "version": "0.0.0", "page": "", "assets": {}}
+        self.core = core
         for c in carts.all():
             carts.remove(c.name)
         import ui
@@ -124,12 +131,14 @@ class CartPaneTest(unittest.TestCase):
         for name, fn in self._boxes.items():
             setattr(messagebox, name, fn)
         self.db.remote_state = self._remote_state
+        self.core.latest = self._latest
         # Let the version check finish before the interpreter tears Tk down.
         # Destroying the root while a worker thread is still live is what
         # Tcl_AsyncDelete complains about, and it aborts the whole run.
         # Drain both runners before the widgets they will write to go away.
         end = time.time() + 15
         while time.time() < end and (self.app.dbjob.busy()
+                                     or self.app.corejob.busy()
                                      or self.app.worker.busy):
             self.root.update()
             time.sleep(0.01)
@@ -152,6 +161,7 @@ class CartPaneTest(unittest.TestCase):
         end = time.time() + limit
         while time.time() < end and (self.app.worker.busy
                                      or self.app.worker.pending is not None
+                                     or self.app.corejob.busy()
                                      or self.app.dbjob.busy()):
             self.root.update()
             time.sleep(0.01)

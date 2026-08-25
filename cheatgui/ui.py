@@ -19,6 +19,7 @@ from tkinter import messagebox, ttk
 import card as card_mod
 import carts
 import cheatfile
+import core as core_mod
 import db
 import library
 import meter
@@ -50,18 +51,25 @@ class App(ttk.Frame):
         # Reads the whole card in the background, a system at a time, starting
         # with whichever one you are looking at. See start_prefetch.
         self.prefetch = work.Job(master)
+        # The core check and the core install: network bound, and neither may
+        # queue behind the database fetch or the card read.
+        self.corejob = work.Job(master)
         self.ready: dict[str, list[int]] = {}   # platform id -> cheat counts
         self.wanted: str | None = None          # the system to read next
         self.working: Working | None = None     # the modal, while it is up
         self._working_after = None
         self.remote: dict | None = None       # upstream's version, once known
         self.dbjob_kind = ""                  # "check" or "update", for Stop
+        self.survey: core_mod.Survey | None = None   # cores and boot ROMs
+        self.release: dict | None = None      # the newest core release
+        self.corejob_kind = ""                # "check" or "install", for Stop
         self.games: list[card_mod.Game] = []
         self.view: model.GameView | None = None
 
         self._build()
         self.rescan()
         self.check_db()
+        self.check_core()
 
     # ---------------------------------------------------------------- layout --
     def _build(self) -> None:
@@ -162,12 +170,37 @@ class App(ttk.Frame):
                                    command=self.save, state="disabled")
         self.save_btn.grid(row=0, column=3, padx=(8, 0))
 
+        self._build_corebar()
         self._build_dbbar()
+
+    def _build_corebar(self) -> None:
+        """Which core is on the card, and whether it can actually run.
+
+        Above the database line rather than below it because it is the more
+        fundamental of the two: an out of date cheat database writes cheats
+        that are merely old, and a missing core makes every button in this
+        window a no-op that looks like it worked.
+        """
+        bar = ttk.Frame(self)
+        bar.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        bar.columnconfigure(0, weight=1)
+        self.core_label = ttk.Label(bar, text="Pocket core: checking...",
+                                    foreground="#666")
+        self.core_label.grid(row=0, column=0, sticky="w")
+        self.core_bar = ttk.Progressbar(bar, length=180, mode="determinate")
+        self.core_btn = ttk.Button(bar, text="Install core", width=13,
+                                   command=self.install_core, state="disabled")
+        self.core_btn.grid(row=0, column=2, padx=(6, 0))
+        self.bios_label = ttk.Label(bar, text="", foreground="#666")
+        self.bios_label.grid(row=1, column=0, sticky="w", pady=(2, 0))
+        self.bios_btn = ttk.Button(bar, text="Boot ROMs...", width=13,
+                                   command=self.show_roms, state="disabled")
+        self.bios_btn.grid(row=1, column=2, padx=(6, 0), pady=(2, 0))
 
     def _build_dbbar(self) -> None:
         """Which cheat database is in use, how old it is, and updating it."""
         bar = ttk.Frame(self)
-        bar.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        bar.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(4, 0))
         bar.columnconfigure(0, weight=1)
         self.db_label = ttk.Label(bar, text="cheat database: checking...",
                                   foreground="#666")
@@ -217,6 +250,8 @@ class App(ttk.Frame):
         self.close_working()
         self.ready.clear()
         self.wanted = None
+        self.survey = None
+        self.refresh_core_label()
         self.eject_btn.state(["disabled"])
         self.card_label.config(text="scanning...", foreground="#666")
         self.status.config(text="reading the card", foreground="#000")
@@ -297,6 +332,8 @@ class App(ttk.Frame):
         self.platform = None
         self.games = []
         self.view = None
+        self.survey = None
+        self.refresh_core_label()
         self.systems.delete(*self.systems.get_children())
         self.gamelist.delete(*self.gamelist.get_children())
         self.cheats.delete(*self.cheats.get_children())
@@ -415,6 +452,159 @@ class App(ttk.Frame):
         if self.view is not None:
             self.on_game()
 
+    # ---------------------------------------------------------------- the core --
+    def check_core(self) -> None:
+        """Ask the core's release page what is current. One API call.
+
+        Runs at startup alongside the database check, and again after an
+        install. Being offline is not an error: the card half of the report
+        still says which core is installed and whether its boot ROMs are
+        there, which is the half that decides whether the Pocket works.
+        """
+        if self.corejob.busy():
+            return
+        self.corejob_kind = "check"
+        self.corejob.start(lambda report, cancelled: core_mod.latest(timeout=10),
+                           None, self._core_checked)
+
+    def _core_checked(self, release, err) -> None:
+        self.corejob_kind = ""
+        if err is None:
+            self.release = release
+        self.refresh_core_label(
+            note="" if err is None else "  (could not reach the release page)")
+
+    def refresh_core_label(self, note: str = "") -> None:
+        """Both core lines, from whatever of the two halves is known."""
+        if self.survey is None and (self.card is not None or self.worker.busy
+                                    or self.prefetch.busy()):
+            # A card that has not been read yet is not a card without a core,
+            # and saying so for the second it takes reads as bad news.
+            self.core_label.config(text="Pocket core: reading the card...",
+                                   foreground="#666")
+        else:
+            text, bad = core_mod.describe(self.survey, self.release)
+            self.core_label.config(text=text + note,
+                                   foreground="#a00" if bad else "#666")
+
+        roms, rbad = core_mod.describe_roms(self.survey)
+        self.bios_label.config(text=roms, foreground="#a00" if rbad else "#666")
+        self.bios_btn.state(["!disabled"] if roms else ["disabled"])
+
+        if self.corejob_kind == "install":
+            return
+        if self.survey is None or self.release is None:
+            self.core_btn.config(text="Install core")
+            self.core_btn.state(["disabled"])
+            return
+        behind = core_mod.outdated(self.survey.versions, self.release)
+        # Reinstall stays available on a current card on purpose: a core that
+        # was interrupted mid-copy reads as the right version and does not run,
+        # and putting it back is the fix.
+        self.core_btn.config(text="Install core" if behind else "Reinstall")
+        self.core_btn.state(["!disabled"])
+
+    def install_core(self) -> None:
+        """Put the current release on the card, once the user has said so."""
+        if self.corejob_kind == "install":
+            self.corejob.cancel()
+            self.status.config(text="stopping the install...", foreground="#000")
+            return
+        if self.corejob.busy():
+            self.status.config(text="still checking the release, try again in "
+                                    "a moment", foreground="#000")
+            return
+        if self.card is None or self.survey is None or self.release is None:
+            return
+
+        rel = self.release
+        behind = core_mod.outdated(self.survey.versions, rel)
+        todo = behind or list(core_mod.CORES)
+        names = "\n".join(f"    Cores/{c.id}    {c.title}" for c in todo)
+        if not messagebox.askokcancel(
+                "Install the Pocket core",
+                f"Install {rel['tag']} onto {self.card.root}?",
+                detail=f"This writes:\n\n{names}\n\n"
+                       "and the platform entries that go with them. Your ROMs, "
+                       "saves, cheat files and boot ROMs are not touched.\n\n"
+                       "Eject the card from this window afterwards, before you "
+                       "pull it out."):
+            return
+
+        root = self.card.root
+
+        def body(report, cancelled):
+            written = core_mod.install(root, rel, cores=todo,
+                                       progress=report, cancelled=cancelled)
+            return written, core_mod.survey(root)
+
+        if not self.corejob.start(body, self._core_progress, self._core_done):
+            return
+        self.corejob_kind = "install"
+        # Unmounting or rescanning the card halfway through writing a core to
+        # it is the one thing that could leave the Pocket with a core that
+        # loads and does not run.
+        self.eject_btn.state(["disabled"])
+        self.rescan_btn.state(["disabled"])
+        self.core_btn.config(text="Stop")
+        self.core_bar.grid(row=0, column=1, padx=(8, 0))
+        self.core_bar.config(value=0, maximum=100)
+
+    def _core_progress(self, done: int, total: int, message: str) -> None:
+        if total:
+            self.core_bar.config(mode="determinate", maximum=total, value=done)
+        else:
+            self.core_bar.config(mode="determinate", maximum=100, value=0)
+        self.core_label.config(text=message, foreground="#666")
+
+    def _core_done(self, result, err) -> None:
+        self.corejob_kind = ""
+        self.core_bar.grid_remove()
+        self.core_btn.config(text="Install core")
+        self.rescan_btn.state(["!disabled"])
+        if self.card is not None:
+            self.eject_btn.state(["!disabled"])
+        if isinstance(err, core_mod.Cancelled):
+            self.status.config(text="install stopped, the core is unchanged",
+                               foreground="#000")
+            self.refresh_core_label()
+            return
+        if err is not None:
+            self.refresh_core_label(note="  (install failed)")
+            self.status.config(text=f"could not install the core: {err}",
+                               foreground="#a00")
+            messagebox.showerror(
+                "Pocket core",
+                f"The core was not installed.\n\n{err}\n\n"
+                "Whatever was on the card before is untouched. You can also "
+                f"install it by hand from\n{core_mod.RELEASES}")
+            return
+
+        written, found = result
+        self.survey = found
+        if self.card is not None:
+            self.card.sync()
+        self.refresh_core_label()
+        self.status.config(
+            text=f"core installed: {self.release['tag']}, {len(written)} "
+                 "entries written. Eject before pulling the card.",
+            foreground="#060")
+        if found.problems():
+            # Installing the core is half of it. A card with no boot ROM shows
+            # the core in the menu and then refuses to start anything, which
+            # reads as a broken install rather than a missing file.
+            self.show_roms()
+
+    def show_roms(self) -> None:
+        """What each core needs, whether it is there, and where it goes."""
+        if self.survey is None:
+            return
+        text = core_mod.rom_advice(self.survey)
+        if self.survey.problems():
+            messagebox.showwarning("Boot ROMs", text)
+        else:
+            messagebox.showinfo("Boot ROMs", text)
+
     # ----------------------------------------------------------------- panes --
     def on_system(self, _evt=None) -> None:
         sel = self.systems.selection()
@@ -489,13 +679,19 @@ class App(ttk.Frame):
         # card the desktop has already walked is read in milliseconds, and a
         # dialog that flashes up and vanishes is worse than none.
         self._working_after = self.after(
-            400, lambda: self.show_working(len(plats)))
+            400, lambda: self.show_working(len(plats) + 1))
 
         def body(report, cancelled):
+            # First, because it is a handful of files and it decides whether
+            # anything else in this window can have an effect at all.
+            with timing.stage("survey the cores"):
+                found = core_mod.survey(card.root)
+            steps = len(plats) + 1
+            report(1, steps, core_mod.STEP)
             done: set[str] = set()
             while len(done) < len(plats):
                 if cancelled():
-                    return
+                    return found
                 # Whatever the user is looking at goes next.
                 nxt = next((p for p in plats
                             if p.id == self.wanted and p.id not in done), None)
@@ -511,7 +707,8 @@ class App(ttk.Frame):
                         if nxt.has_cheats(g) else 0 for g in nxt.games]
                 ready[nxt.id] = counts
                 done.add(nxt.id)
-                report(len(done), len(plats), nxt.id)
+                report(len(done) + 1, steps, nxt.id)
+            return found
 
         self.prefetch.start(body, self._prefetched, self._prefetch_done)
 
@@ -539,17 +736,24 @@ class App(ttk.Frame):
         time looks ready while half of it is not, and clicking into it gets
         you a list that changes under you.
         """
-        name = next((p.name for p in self.platforms if p.id == pid), pid)
+        if pid == core_mod.STEP:
+            message = "Checked which core is installed"
+        else:
+            name = next((p.name for p in self.platforms if p.id == pid), pid)
+            message = f"Read {name}"
         if self.working is not None:
-            self.working.step(done, total, f"Read {name}")
-        self.status_hint(f"reading the card... {done} of {total} systems")
+            self.working.step(done, total, message)
+        self.status_hint(f"reading the card... {done} of {total} steps")
 
-    def _prefetch_done(self, _result, err) -> None:
+    def _prefetch_done(self, result, err) -> None:
         self.close_working()
         if err is not None:
             self.status.config(text=f"could not read the card: {err}",
                                foreground="#a00")
             return
+        if result is not None:
+            self.survey = result
+            self.refresh_core_label()
         self.apply_ready()
         # Show the first system now that everything behind it is real.
         if self.platforms and not self.systems.selection():

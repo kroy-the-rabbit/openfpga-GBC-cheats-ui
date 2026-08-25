@@ -30,6 +30,13 @@ On first run there is no cheat database. Press **Update** in the bar along the
 bottom and it fetches one, about 12 MB and a minute. That bar is also where you
 see which version you have and whether upstream has a newer one.
 
+Above it is the **Pocket core** bar, which is the one that decides whether any
+of this has an effect at all. A stock Pocket core ignores cheat files, so with
+the card in, press **Install core** and the current release goes onto it. The
+second line of that bar names any boot ROM the core needs and your card does
+not have; those are Nintendo's code and you have to supply them yourself, but
+the app says exactly which file and which folder. **Eject** when you are done.
+
 ## Verify what you downloaded first
 
 The releases are signed. Checking that takes ten seconds and is the only thing

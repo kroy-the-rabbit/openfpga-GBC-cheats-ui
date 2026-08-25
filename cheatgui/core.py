@@ -1,0 +1,473 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""The Pocket core that reads the files this app writes.
+
+This app writes `.cht` files and nothing else. A stock Pocket core ignores
+them completely, so on a card without the cheat core every button here is a
+no-op that looks like it worked. That was the single worst first-run footgun,
+and a link in a README does not fix it: the card is right there, the app can
+already see which cores are on it, and it can put the current one there.
+
+Two things are checked, and they fail in different ways:
+
+  the core     out of date or absent. Fetched from the release page, verified
+               to look like a Pocket core, and unpacked onto the card.
+  the boot ROM absent. Named, sized, and located, and that is all. These are
+               Nintendo's copyrighted code; this app does not carry them, will
+               not fetch them, and says where yours has to go.
+
+The release zips are not signed, so what is checked is what can be: the
+download comes over a verified connection from the release the API named, and
+the archive is refused unless every path in it lands inside the card and it
+holds the core it claims to. See _members().
+
+Standard library only, and nothing here touches Tk. The GUI runs install() on
+a work.Job and reports progress through the callback.
+"""
+from __future__ import annotations
+
+import io
+import json
+import os
+import shutil
+import urllib.request
+import zipfile
+from dataclasses import dataclass
+
+from db import UA, ssl_context          # one CA story for the whole app
+
+REPO = "kroy-the-rabbit/openfpga-GBC-cheats"
+API = f"https://api.github.com/repos/{REPO}"
+RELEASES = f"https://github.com/{REPO}/releases"
+
+TIMEOUT = 30
+CHUNK = 64 * 1024
+
+# A Pocket core zip is a couple of megabytes. Anything wildly past that is not
+# one, and unpacking it onto somebody's card to find out is the wrong order to
+# do things in.
+MAX_ZIP = 64 * 1024 * 1024
+
+# Where a half-finished install lives while it is being written. On the card
+# so that putting the files in place is a rename rather than a copy, dotted so
+# the Pocket's own menus pass over it, and removed either way.
+STAGING = ".pocket-cheats-install"
+
+# What the card-reading pass calls this step in its progress report. Not a
+# platform id, so nothing can mistake it for one.
+STEP = "cores"
+
+
+class Cancelled(Exception):
+    """Raised out of install() when the caller asked it to stop."""
+
+
+@dataclass(frozen=True)
+class Rom:
+    """A file the core needs and this app must not supply.
+
+    Boot ROMs are Nintendo's. The core declares which ones it wants and how
+    big each has to be; the most this app will ever do is tell you that yours
+    is not there.
+    """
+    filename: str
+    size: int
+    what: str
+
+
+@dataclass(frozen=True)
+class Core:
+    """One Pocket core: a directory under /Cores and a zip in the release."""
+    id: str                     # the /Cores directory name, "<author>.<name>"
+    platform: str               # the Pocket platform id it runs
+    title: str                  # what to call it in a sentence
+    asset: str                  # start of its filename in the release
+    bios: tuple[Rom, ...]       # what it needs, when it is not installed yet
+
+
+# The cores this app writes cheat files for. One release covers both systems,
+# which is why there is one repository above and two entries here.
+#
+# The boot ROMs listed are the fallback for a card that has no core on it yet.
+# Once one is installed its own data.json is asked instead, so a core that
+# starts wanting a different file says so itself. See wanted().
+CORES = (
+    Core("kroy.GBC", "gbc", "Game Boy Color", "kroy.GBC_",
+         (Rom("gbc_bios.bin", 2304, "GBC BIOS"),)),
+    Core("kroy.GB", "gb", "Game Boy", "kroy.GB_",
+         (Rom("gb_bios.bin", 256, "DMG BIOS"),
+          Rom("sgb_boot.bin", 256, "SGB BIOS"))),
+)
+
+
+# ------------------------------------------------------------------ the card --
+def installed(root: str) -> dict[str, str | None]:
+    """Core id -> the version on the card, or None when it is not there.
+
+    Reads only the cores this app knows about. A well used card has a hundred
+    of them and opening every core.json to find two costs seconds over USB.
+    """
+    out: dict[str, str | None] = {}
+    for c in CORES:
+        path = os.path.join(root, "Cores", c.id, "core.json")
+        try:
+            with open(path) as f:
+                out[c.id] = json.load(f)["core"]["metadata"]["version"]
+        except Exception:                                    # noqa: BLE001
+            out[c.id] = None
+    return out
+
+
+def wanted(root: str, core: Core) -> tuple[Rom, ...]:
+    """The fixed-name files this core requires, the core's own answer first.
+
+    An installed core's data.json lists every slot it loads. A slot with a
+    fixed `filename` is one the Pocket fills without asking, which means it is
+    one you had to put there yourself; the browsable slots (the cartridge, the
+    save) have no filename and are not this. Reading it rather than trusting
+    the table above means a core that adds a boot ROM is reported correctly by
+    a copy of this app that predates it.
+    """
+    path = os.path.join(root, "Cores", core.id, "data.json")
+    try:
+        with open(path) as f:
+            slots = json.load(f)["data"]["data_slots"]
+    except Exception:                                        # noqa: BLE001
+        return core.bios
+    found = tuple(Rom(s["filename"], int(s.get("size_exact") or 0),
+                      s.get("name") or s["filename"])
+                  for s in slots
+                  if s.get("filename") and s.get("required"))
+    return found or core.bios
+
+
+def rom_dirs(root: str, core: Core) -> list[str]:
+    """Where the Pocket looks for this core's fixed-name files.
+
+    `common` is shared by every core for the platform, and is where the core's
+    own install notes tell you to put the boot ROM. A core-specific directory
+    is the other place the framework accepts, so a file already sitting there
+    counts as present; it is not what gets recommended.
+    """
+    base = os.path.join(root, "Assets", core.platform)
+    return [os.path.join(base, "common"), os.path.join(base, core.id)]
+
+
+@dataclass
+class RomState:
+    core: Core
+    rom: Rom
+    path: str | None        # where it was found, None when it was not
+    size: int               # its size on the card, 0 when absent
+
+    @property
+    def ok(self) -> bool:
+        return self.path is not None and not self.wrong_size
+
+    @property
+    def wrong_size(self) -> bool:
+        return bool(self.path and self.rom.size and self.size != self.rom.size)
+
+    @property
+    def where(self) -> str:
+        """The path to recommend, relative to the card, for a missing file."""
+        return os.path.join("Assets", self.core.platform, "common",
+                            self.rom.filename)
+
+
+def boot_roms(root: str) -> list[RomState]:
+    """Every fixed-name file the installed cores need, and whether it is there.
+
+    Only for cores that are actually on the card. A boot ROM for a core you
+    have not installed is not missing, it is irrelevant, and listing it would
+    make the one that does matter harder to see.
+    """
+    here = installed(root)
+    out: list[RomState] = []
+    for c in CORES:
+        if here.get(c.id) is None:
+            continue
+        dirs = rom_dirs(root, c)
+        for rom in wanted(root, c):
+            state = RomState(c, rom, None, 0)
+            for d in dirs:
+                p = os.path.join(d, rom.filename)
+                try:
+                    state.size = os.path.getsize(p)
+                    state.path = p
+                    break
+                except OSError:
+                    continue
+            out.append(state)
+    return out
+
+
+@dataclass
+class Survey:
+    """What one look at the card found. Built off the Tk thread."""
+    root: str
+    versions: dict[str, str | None]
+    roms: list[RomState]
+
+    def any_core(self) -> bool:
+        return any(v for v in self.versions.values())
+
+    def problems(self) -> list[RomState]:
+        return [r for r in self.roms if not r.ok]
+
+
+def survey(root: str) -> Survey:
+    """Which cores are on this card and whether they can run. A few files."""
+    return Survey(root, installed(root), boot_roms(root))
+
+
+# --------------------------------------------------------------- the release --
+def latest(timeout: int = TIMEOUT) -> dict:
+    """The newest release: its tag, its version, and the zips in it."""
+    req = urllib.request.Request(
+        f"{API}/releases/latest",
+        headers={**UA, "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=timeout,
+                                context=ssl_context()) as f:
+        rel = json.load(f)
+    tag = rel.get("tag_name") or ""
+    return {
+        "tag": tag,
+        # core.json carries the tag without its leading v, which is what an
+        # installed version is compared against.
+        "version": tag[1:] if tag.startswith("v") else tag,
+        "page": rel.get("html_url") or RELEASES,
+        "assets": {a["name"]: a["browser_download_url"]
+                   for a in rel.get("assets") or []},
+    }
+
+
+def asset_for(core: Core, remote: dict) -> str | None:
+    for name, url in sorted(remote.get("assets", {}).items()):
+        if name.startswith(core.asset) and name.endswith(".zip"):
+            return url
+    return None
+
+
+def outdated(versions: dict[str, str | None], remote: dict) -> list[Core]:
+    """The cores that would change if the latest release were installed.
+
+    Absent counts, and so does any version that is not the released one:
+    a card carrying a newer local build is still not carrying this release,
+    and saying "up to date" about it would be a guess at which is newer.
+    """
+    want = remote.get("version")
+    if not want:
+        return []
+    return [c for c in CORES if versions.get(c.id) != want
+            and asset_for(c, remote) is not None]
+
+
+def describe(sv: Survey | None, remote: dict | None) -> tuple[str, bool]:
+    """One line for the status bar, and whether it is bad news."""
+    if sv is None:
+        return "Pocket core: no card", False
+    have = [f"{c.id} {sv.versions[c.id]}" for c in CORES if sv.versions[c.id]]
+    if not have:
+        return ("Pocket core: not installed. Nothing written here has any "
+                "effect until it is."), True
+    line = "Pocket core: " + ", ".join(have)
+    if remote is None:
+        return line, False
+    behind = outdated(sv.versions, remote)
+    if not behind:
+        return line + "  up to date", False
+    names = ", ".join(c.id for c in behind)
+    return f"{line}  update available: {remote['version']} ({names})", True
+
+
+def describe_roms(sv: Survey | None) -> tuple[str, bool]:
+    if sv is None or not sv.any_core():
+        return "", False
+    bad = sv.problems()
+    if not bad:
+        return f"boot ROMs: {len(sv.roms)} present", False
+    missing = [r for r in bad if r.path is None]
+    wrong = [r for r in bad if r.wrong_size]
+    parts = []
+    if missing:
+        parts.append("missing " + ", ".join(r.rom.filename for r in missing))
+    if wrong:
+        parts.append("wrong size: " + ", ".join(r.rom.filename for r in wrong))
+    return ("boot ROMs: " + "; ".join(parts)
+            + ". The core will not start a game without them."), True
+
+
+def rom_advice(sv: Survey) -> str:
+    """The whole story for the dialog: what, how big, and where it goes."""
+    lines = ["A boot ROM is the code the console runs before the game does.",
+             "It is Nintendo's, so it is not in the core and it is not in "
+             "this app. Dump it from your own hardware or supply your own "
+             "copy.", ""]
+    for r in sv.roms:
+        size = f"{r.rom.size} bytes" if r.rom.size else "any size"
+        if r.path is None:
+            lines.append(f"MISSING  {r.rom.filename}  ({r.rom.what}, {size})")
+            lines.append(f"         put it at  {r.where}")
+        elif r.wrong_size:
+            lines.append(f"WRONG    {r.rom.filename}  is {r.size} bytes, "
+                         f"the {r.core.title} core wants {size}")
+            lines.append(f"         at  {r.path}")
+        else:
+            lines.append(f"ok       {r.rom.filename}  ({r.rom.what}, {size})")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------- installing --
+def _fetch(url: str, say, stop, timeout: int) -> bytes:
+    """Download one zip into memory, reporting bytes as they arrive."""
+    req = urllib.request.Request(url, headers=UA)
+    buf = io.BytesIO()
+    with urllib.request.urlopen(req, timeout=timeout,
+                                context=ssl_context()) as f:
+        total = int(f.headers.get("Content-Length") or 0)
+        if total > MAX_ZIP:
+            raise RuntimeError(f"that download is {total} bytes, which is not "
+                               "a Pocket core")
+        while True:
+            if stop():
+                raise Cancelled()
+            chunk = f.read(CHUNK)
+            if not chunk:
+                break
+            buf.write(chunk)
+            if buf.tell() > MAX_ZIP:
+                raise RuntimeError("that download is too big to be a Pocket core")
+            say(buf.tell(), total)
+    return buf.getvalue()
+
+
+def _members(zf: zipfile.ZipFile, core: Core) -> list[zipfile.ZipInfo]:
+    """The files in the zip, once it has been checked to be the right one.
+
+    A zip decides its own paths, and this one is unpacked onto the root of
+    somebody's SD card. An entry naming an absolute path, a drive, or a parent
+    directory would land outside the card entirely, so the whole archive is
+    refused rather than that entry skipped: an archive containing one is not a
+    core release with a flaw in it, it is not a core release.
+    """
+    out = []
+    for info in zf.infolist():
+        if info.is_dir():
+            continue
+        name = info.filename.replace("\\", "/")
+        parts = name.split("/")
+        if (name.startswith("/") or ".." in parts or ":" in parts[0]
+                or any(p in ("", ".") for p in parts)):
+            raise RuntimeError(f"the release zip names {info.filename!r}, "
+                               "which is not inside the card")
+        out.append(info)
+    if not any(i.filename.replace("\\", "/") == f"Cores/{core.id}/core.json"
+               for i in out):
+        raise RuntimeError(f"that zip holds no Cores/{core.id}, so it is not "
+                           f"the {core.title} core")
+    return out
+
+
+def _place(staged: str, root: str, core: Core) -> list[str]:
+    """Move an unpacked release from the staging directory onto the card.
+
+    The core's own directory is swapped whole, because a core is its .rbf_r
+    and its json files together and half of each is not a core. Everything
+    else, the platform name and its image, is replaced file by file: those
+    directories are shared with every other core on the card.
+    """
+    written = []
+    live = os.path.join(root, "Cores", core.id)
+    new = os.path.join(staged, "Cores", core.id)
+    old = live + ".old"
+
+    for base, _dirs, files in os.walk(staged):
+        rel = os.path.relpath(base, staged)
+        if rel == "." or rel.split(os.sep)[:2] == ["Cores", core.id]:
+            continue
+        os.makedirs(os.path.join(root, rel), exist_ok=True)
+        for f in files:
+            os.replace(os.path.join(base, f), os.path.join(root, rel, f))
+            written.append(os.path.join(rel, f))
+
+    os.makedirs(os.path.dirname(live), exist_ok=True)
+    if os.path.isdir(old):
+        shutil.rmtree(old, ignore_errors=True)
+    if os.path.isdir(live):
+        os.replace(live, old)
+    try:
+        os.replace(new, live)
+    except OSError:
+        if os.path.isdir(old):
+            os.replace(old, live)
+        raise
+    shutil.rmtree(old, ignore_errors=True)
+    written.append(os.path.join("Cores", core.id))
+    return written
+
+
+def install(root: str, remote: dict, cores=None, progress=None,
+            cancelled=None, timeout: int = TIMEOUT) -> list[str]:
+    """Put the release on the card. Returns what was written.
+
+    Each core is downloaded whole, checked, unpacked into a staging directory
+    on the card and only then moved into place, so an install that fails or is
+    stopped leaves the core that was already working exactly as it was.
+
+    Saves, ROMs, cheat files and boot ROMs are never touched: the release zips
+    contain none of those paths, and _members() refuses an archive that names
+    anything outside the card.
+    """
+    def say(done, total, msg):
+        if progress:
+            progress(done, total, msg)
+
+    def stop() -> bool:
+        return bool(cancelled and cancelled())
+
+    todo = list(cores if cores is not None else outdated(installed(root), remote))
+    if not todo:
+        return []
+
+    staging = os.path.join(root, STAGING)
+    shutil.rmtree(staging, ignore_errors=True)
+
+    written: list[str] = []
+    try:
+        for n, core in enumerate(todo, 1):
+            url = asset_for(core, remote)
+            if url is None:
+                raise RuntimeError(f"the release has no zip for {core.id}")
+            here = f"{core.title} core ({n} of {len(todo)})"
+            say(0, 0, f"fetching the {here}")
+            data = _fetch(url, lambda got, tot: say(got, tot,
+                                                    f"fetching the {here}"),
+                          stop, timeout)
+            if stop():
+                raise Cancelled()
+
+            say(0, 0, f"checking the {here}")
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                members = _members(zf, core)
+                need = sum(m.file_size for m in members)
+                free = shutil.disk_usage(root).free
+                if free < need * 2:
+                    raise RuntimeError(
+                        f"{need // 1024} KB to write and {free // 1024} KB "
+                        "free on the card")
+                dest = os.path.join(staging, core.id)
+                shutil.rmtree(dest, ignore_errors=True)
+                say(0, len(members), f"unpacking the {here}")
+                for i, m in enumerate(members, 1):
+                    if stop():
+                        raise Cancelled()
+                    zf.extract(m, dest)
+                    if i % 4 == 0 or i == len(members):
+                        say(i, len(members), f"unpacking the {here}")
+
+            say(0, 0, f"installing the {here}")
+            written += _place(dest, root, core)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+    return written

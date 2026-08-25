@@ -29,7 +29,7 @@ of the ticked cheats are GameShark codes, and on a cartridge whose revision you
 cannot check those are the dangerous kind. The **Applied** column says which is
 which, and [Cartridges](#cartridges-read-this-part) explains why it matters.
 
-## The cores it writes for
+## The core it writes for
 
 This app writes cheat files. Reading them is the core's job, and stock Pocket
 cores cannot do it, so the card needs one of these installed or nothing here
@@ -41,8 +41,54 @@ has any effect:
 | [openfpga-GBA-cheats](https://github.com/kroy-the-rabbit/openfpga-GBA-cheats) | Game Boy Advance | not released yet, see [below](#game-boy-advance-is-work-in-progress) |
 
 Both are forks that add a cheat engine to somebody else's core, and both keep
-their own install notes. This app is a companion to them: it never touches a
-core, only the `.cht` files beside your ROMs.
+their own install notes. Only the first one is released, and the app can put it
+on the card for you.
+
+### Installing it from here
+
+The **Pocket core** line, above the database bar, says which core the card is
+carrying and whether it is the released one:
+
+```
+Pocket core: kroy.GBC 1.4.0-cheats.9, kroy.GB 1.4.0-cheats.9  up to date
+Pocket core: kroy.GBC 1.4.0-cheats.8  update available: 1.4.0-cheats.9 (kroy.GBC)
+Pocket core: not installed. Nothing written here has any effect until it is.
+```
+
+**Install core** fetches the current release and unpacks it onto the card. It
+writes `Cores/kroy.GBC`, `Cores/kroy.GB` and the two platform entries that go
+with them, and nothing else: your ROMs, saves, cheat files and boot ROMs are
+not touched, and an archive naming a path outside the card is refused rather
+than unpacked. Each core is downloaded whole, checked, and staged on the card
+before any of it is moved into place, so an install that fails or is stopped
+leaves the core you already had exactly as it was. **Eject** afterwards, before
+you pull the card out.
+
+On a card that is already current the button says **Reinstall**. A core copied
+half way reads as the right version and does not run, and putting it back is
+the fix.
+
+### Boot ROMs
+
+The core loads a boot ROM before it starts a game and will not run without one.
+Those are Nintendo's code: they are not in the core, they are not in this app,
+and this app will not fetch them. What it will do is tell you which of them
+your card is missing, on the second line of the core bar, with **Boot ROMs...**
+for the whole list and where each one goes:
+
+| File | Goes in | Size |
+|---|---|---|
+| `gbc_bios.bin` | `Assets/gbc/common/` | 2304 bytes |
+| `gb_bios.bin` | `Assets/gb/common/` | 256 bytes |
+| `sgb_boot.bin` | `Assets/gb/common/` | 256 bytes |
+
+Dump them from your own hardware, or supply your own copies. A file of the
+wrong size is reported separately from a missing one, because that is the
+failure that looks like a working install and then refuses to start anything.
+
+The list is read from the installed core's own `data.json` rather than from a
+table in here, so a core that starts wanting a different file is reported
+correctly by a copy of the app that predates it.
 
 ## Get the picker
 

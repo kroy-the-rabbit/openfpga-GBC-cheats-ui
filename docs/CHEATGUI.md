@@ -54,6 +54,55 @@ If the window ever stops responding, `kill -USR1 <pid>` prints the stack of
 whatever it is blocked on to its stderr. That is how both of these were
 found.
 
+## The Pocket core, and the boot ROMs it needs
+
+The bar above the database one is the more fundamental of the two. A stock
+Pocket core ignores cheat files, so on a card without the cheat core every
+button in this window is a no-op that looks like it worked.
+
+```
+Pocket core: kroy.GBC 1.4.0-cheats.9, kroy.GB 1.4.0-cheats.9  up to date
+Pocket core: kroy.GBC 1.4.0-cheats.8  update available: 1.4.0-cheats.9 (kroy.GBC)
+Pocket core: not installed. Nothing written here has any effect until it is.
+```
+
+Which core is on the card is read from its own `Cores/<id>/core.json`, and only
+for the two ids the app knows about: a well used card carries a hundred cores
+and opening every one of those to find two costs seconds over USB. That read
+is the first step of the card-reading pass, so it happens behind the same modal
+as everything else rather than adding a freeze of its own.
+
+**Install core** fetches the newest release and unpacks it onto the card. Each
+zip is downloaded whole, checked, and extracted into a staging directory on the
+card, and only then moved into place: the core's own directory is swapped whole
+because a core is its `.rbf_r` and its json files together, and `Platforms/` is
+merged file by file because it is shared with every other core on the card.
+Nothing is written over the live core until the replacement is complete, so an
+install that fails or is stopped leaves the one you had working. **Eject** and
+**Rescan** are disabled while it runs; unmounting the card halfway through
+writing a core is the one thing here that could leave the Pocket with a core
+that loads and does not run.
+
+The zips are not signed, so what is checked is what can be checked: the
+download comes over a verified connection from the release the API named, and
+an archive is refused outright if any path in it would land outside the card or
+if it does not hold the core it claims to.
+
+The second line is the boot ROMs. The core loads one before it starts a game
+and will not run without it, and those are Nintendo's code: not in the core,
+not in this app, and never fetched by it. What the app does is name the file,
+its size and the folder it goes in, which is `Assets/<platform>/common/`. A
+file of the wrong size is reported separately from a missing one, because that
+is the failure that looks like a working install and then refuses to start
+anything.
+
+That list comes from the installed core's own `data.json`, from the slots that
+carry a fixed `filename` and are marked required. The browsable slots, the
+cartridge and the save, have no fixed filename and are not files you supply;
+reporting either as missing would tell every user their card was broken. Only
+cores that are actually installed are checked, because a boot ROM for a core
+you do not have is not missing, it is irrelevant.
+
 ## The cheat database
 
 The picker needs the libretro cheat database and does not ship with one. The bar
