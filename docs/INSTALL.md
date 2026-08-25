@@ -3,16 +3,15 @@
 > **How much each build has actually been exercised**, so you can judge what
 > you are downloading:
 >
-> * **Linux** is the one that gets used. Built, run, and used against a real
->   Pocket card.
-> * **Windows** is smoke tested under Wine on every check: it starts, draws its
->   whole window, and finds a card by enumerating drive letters. Nobody has run
->   it on Windows itself, and **Eject** is the one thing Wine cannot exercise,
->   because it calls a shell verb that Wine does not provide.
+> * **Linux** is the one that gets used day to day. Built, run, and used
+>   against a real Pocket card.
+> * **Windows** has been run on Windows: it reads a card, writes cheats,
+>   installs the core and ejects. It is also smoke tested under Wine on every
+>   check, which is what catches a build that will not start at all.
 > * **macOS** has not been run at all. It is built, signed and shape checked by
 >   CI and nothing more.
 >
-> Please report whatever happens on the two that are not Linux.
+> Please report whatever happens on macOS.
 
 One file per platform, on the
 [releases page](https://github.com/kroy-the-rabbit/openfpga-GBC-cheats-ui/releases).
@@ -77,9 +76,11 @@ a card mounted by hand may need unmounting by hand.
 
 ## Windows
 
-**Not tested on Windows**, but smoke tested under Wine: it starts, draws its
-window, and finds a card by drive letter. `packaging/wine-smoke.sh` is what
-does that, and `make wine-test` runs it against a build.
+Run on Windows and confirmed working against a real card, through reading it,
+writing cheats, installing the core and ejecting. Every build is also smoke
+tested under Wine, which is what catches one that will not start at all;
+`packaging/wine-smoke.sh` is what does that, and `make wine-test` runs it
+against a build.
 
 Run the `.exe`. There is no installer.
 
@@ -95,9 +96,9 @@ report in a box. Either way it is also written to
 `%USERPROFILE%\.local\share\pocket-cheats\libretro\pocket-cheats.log`,
 along with the stack of any hard crash.
 
-**Eject** uses the same shell command Explorer's own eject does. This is the
-one part Wine cannot stand in for, so it is the least proven thing in the
-Windows build. If it fails it says so and leaves the card mounted.
+**Eject** uses the same shell command Explorer's own eject does, which is the
+one part the Wine smoke test cannot stand in for. It has been run on Windows
+and unmounts the card. If it fails it says so and leaves the card mounted.
 
 ## macOS
 

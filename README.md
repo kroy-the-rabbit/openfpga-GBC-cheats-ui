@@ -105,12 +105,11 @@ make list ARGS=zelda  # same data, printed, no window
 Full install notes, and how to check the signature on a download, are in
 [docs/INSTALL.md](docs/INSTALL.md).
 
-> **Only the Linux build has actually been used.** The Windows build starts and
-> works under Wine, where it draws its window and finds a card by drive letter,
-> but nobody has run it on Windows itself. The macOS build has never been run
-> at all, and is **not notarized**, so it needs one command to get past
-> Gatekeeper. If either does not start, that is a bug worth reporting rather
-> than something already known.
+> **The Linux and Windows builds have both been used against a real Pocket
+> card**, all the way through: reading the card, writing cheats, installing the
+> core and ejecting. **The macOS build has never been run at all**, and is
+> **not notarized**, so it needs one command to get past Gatekeeper. If it does
+> not start, that is a bug worth reporting rather than something already known.
 
 Python 3.10 or newer with tkinter, if you are running from source. Everything
 used is in the standard library, so the venv `run.sh` makes stays empty; it

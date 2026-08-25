@@ -303,9 +303,9 @@ jobs:
             echo "Back up saves you care about. Game Boy Advance support is"
             echo "work in progress and does nothing yet."
             echo
-            echo "The macOS and Windows builds are **untested**: built and"
-            echo "signed by CI, never run by anybody. Only the Linux build has"
-            echo "been used."
+            echo "The **macOS build is untested**: built and signed by CI,"
+            echo "never run by anybody. Linux and Windows have both been used"
+            echo "against a real card."
             echo
             echo "The macOS build is also **not notarized**. Gatekeeper will"
             echo "refuse it on first launch; see docs/INSTALL.md."
