@@ -188,14 +188,19 @@ class App(ttk.Frame):
                                     foreground="#666")
         self.core_label.grid(row=0, column=0, sticky="w")
         self.core_bar = ttk.Progressbar(bar, length=180, mode="determinate")
-        self.core_btn = ttk.Button(bar, text="Install core", width=13,
-                                   command=self.install_core, state="disabled")
-        self.core_btn.grid(row=0, column=2, padx=(6, 0))
-        self.bios_label = ttk.Label(bar, text="", foreground="#666")
-        self.bios_label.grid(row=1, column=0, sticky="w", pady=(2, 0))
+        # Both buttons on the first row, next to each other. One per line put
+        # three buttons in a column down the bottom right corner, each of them
+        # a long way from the line it acts on, and they read as belonging to
+        # the status area rather than to the core.
         self.bios_btn = ttk.Button(bar, text="Boot ROMs...", width=13,
                                    command=self.show_roms, state="disabled")
-        self.bios_btn.grid(row=1, column=2, padx=(6, 0), pady=(2, 0))
+        self.bios_btn.grid(row=0, column=2, padx=(6, 0))
+        self.core_btn = ttk.Button(bar, text="Install core", width=13,
+                                   command=self.install_core, state="disabled")
+        self.core_btn.grid(row=0, column=3, padx=(4, 0))
+        self.bios_label = ttk.Label(bar, text="", foreground="#666")
+        self.bios_label.grid(row=1, column=0, columnspan=4, sticky="w",
+                             pady=(2, 0))
 
     def _build_dbbar(self) -> None:
         """Which cheat database is in use, how old it is, and updating it."""
