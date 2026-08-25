@@ -63,7 +63,10 @@ class Entry:
         overridden read only satisfies reads the core can see, so a DMA copy or
         a cached value misses it.
         """
-        if not cheatfile.decoded(self.platform):
+        if len(cheatfile.mechanisms(self.platform)) < 2:
+            # One mechanism, or none we can name. A column carrying the same
+            # word in every row says nothing, and on PC Engine every published
+            # cheat is a RAM poke. The UI states that once, above the list.
             return ""
         kinds = {cheatfile.applied_by(c, self.platform) for c in self.group.codes}
         if not kinds:

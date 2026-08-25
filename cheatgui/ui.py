@@ -61,7 +61,10 @@ class App(ttk.Frame):
         self.remote: dict | None = None       # upstream's version, once known
         self.dbjob_kind = ""                  # "check" or "update", for Stop
         self.survey: core_mod.Survey | None = None   # cores and boot ROMs
-        self.release: dict | None = None      # the newest core release
+        # Newest release per repository, once known. The cores no longer come
+        # from one: Game Boy ships both from openfpga-GBC-cheats, PC Engine
+        # will ship from its own.
+        self.releases: dict[str, dict] | None = None
         self.corejob_kind = ""                # "check" or "install", for Stop
         self.games: list[card_mod.Game] = []
         self.view: model.GameView | None = None
@@ -148,11 +151,13 @@ class App(ttk.Frame):
         self.cheats.tag_configure("dead", foreground="#999")
         self.cheats.bind("<Button-1>", self.on_click)
 
-        ttk.Label(right, foreground="#666", text=(
-            "Applied: written = the value is put into RAM each frame, so the "
-            "game can still clamp it.  patched = the CPU's read is overridden."
-        ), wraplength=520).grid(row=2, column=0, columnspan=2, sticky="w",
-                                pady=(4, 0))
+        # What this says depends on the system, because the systems do not
+        # agree on how many ways there are. See retune_applied.
+        self.applied_note = ttk.Label(right, foreground="#666", text="",
+                                      wraplength=520)
+        self.applied_note.grid(row=2, column=0, columnspan=2, sticky="w",
+                               pady=(4, 0))
+        self.applied_platform = ""
 
         bottom = ttk.Frame(right)
         bottom.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
@@ -469,13 +474,14 @@ class App(ttk.Frame):
         if self.corejob.busy():
             return
         self.corejob_kind = "check"
-        self.corejob.start(lambda report, cancelled: core_mod.latest(timeout=10),
-                           None, self._core_checked)
+        self.corejob.start(
+            lambda report, cancelled: core_mod.all_latest(timeout=10),
+            None, self._core_checked)
 
-    def _core_checked(self, release, err) -> None:
+    def _core_checked(self, releases, err) -> None:
         self.corejob_kind = ""
         if err is None:
-            self.release = release
+            self.releases = releases
         self.refresh_core_label(
             note="" if err is None else "  (could not reach the release page)")
 
@@ -488,7 +494,7 @@ class App(ttk.Frame):
             self.core_label.config(text="Pocket core: reading the card...",
                                    foreground="#666")
         else:
-            text, bad = core_mod.describe(self.survey, self.release)
+            text, bad = core_mod.describe(self.survey, self.releases)
             self.core_label.config(text=text + note,
                                    foreground="#a00" if bad else "#666")
 
@@ -498,16 +504,27 @@ class App(ttk.Frame):
 
         if self.corejob_kind == "install":
             return
-        if self.survey is None or self.release is None:
+        if self.survey is None or not self.releases:
             self.core_btn.config(text="Install core")
             self.core_btn.state(["disabled"])
             return
-        behind = core_mod.outdated(self.survey.versions, self.release)
+        behind = core_mod.outdated(self.survey.versions, self.releases)
         # Reinstall stays available on a current card on purpose: a core that
         # was interrupted mid-copy reads as the right version and does not run,
         # and putting it back is the fix.
         self.core_btn.config(text="Install core" if behind else "Reinstall")
         self.core_btn.state(["!disabled"])
+
+    def installable(self) -> list:
+        """The cores there is actually a release to install. Never empty-ish.
+
+        A core with no release yet, which is PC Engine today, is not in here:
+        Reinstall must not offer to fetch something that does not exist.
+        """
+        if not self.releases:
+            return []
+        return [c for c in core_mod.CORES
+                if core_mod.asset_for(c, self.releases) is not None]
 
     def install_core(self) -> None:
         """Put the current release on the card, once the user has said so."""
@@ -519,16 +536,20 @@ class App(ttk.Frame):
             self.status.config(text="still checking the release, try again in "
                                     "a moment", foreground="#000")
             return
-        if self.card is None or self.survey is None or self.release is None:
+        if self.card is None or self.survey is None or not self.releases:
             return
 
-        rel = self.release
-        behind = core_mod.outdated(self.survey.versions, rel)
-        todo = behind or list(core_mod.CORES)
-        names = "\n".join(f"    Cores/{c.id}    {c.title}" for c in todo)
+        rels = self.releases
+        todo = core_mod.outdated(self.survey.versions, rels) or self.installable()
+        if not todo:
+            return
+        names = "\n".join(
+            f"    Cores/{c.id}    {c.title}    "
+            f"{core_mod.release_for(c, rels)['tag']}" for c in todo)
+        tags = sorted({core_mod.release_for(c, rels)["tag"] for c in todo})
         if not messagebox.askokcancel(
                 "Install the Pocket core",
-                f"Install {rel['tag']} onto {self.card.root}?",
+                f"Install {', '.join(tags)} onto {self.card.root}?",
                 detail=f"This writes:\n\n{names}\n\n"
                        "and the platform entries that go with them. Your ROMs, "
                        "saves, cheat files and boot ROMs are not touched.\n\n"
@@ -539,7 +560,7 @@ class App(ttk.Frame):
         root = self.card.root
 
         def body(report, cancelled):
-            written = core_mod.install(root, rel, cores=todo,
+            written = core_mod.install(root, rels, cores=todo,
                                        progress=report, cancelled=cancelled)
             return written, core_mod.survey(root)
 
@@ -578,11 +599,13 @@ class App(ttk.Frame):
             self.refresh_core_label(note="  (install failed)")
             self.status.config(text=f"could not install the core: {err}",
                                foreground="#a00")
+            pages = "\n".join(core_mod.releases_page(r)
+                              for r in core_mod.repos())
             messagebox.showerror(
                 "Pocket core",
                 f"The core was not installed.\n\n{err}\n\n"
                 "Whatever was on the card before is untouched. You can also "
-                f"install it by hand from\n{core_mod.RELEASES}")
+                f"install it by hand from\n{pages}")
             return
 
         written, found = result
@@ -591,9 +614,8 @@ class App(ttk.Frame):
             self.card.sync()
         self.refresh_core_label()
         self.status.config(
-            text=f"core installed: {self.release['tag']}, {len(written)} "
-                 "entries written. Eject before pulling the card.",
-            foreground="#060")
+            text=f"core installed: {len(written)} entries written. "
+                 "Eject before pulling the card.", foreground="#060")
         if found.problems():
             # Installing the core is half of it. A card with no boot ROM shows
             # the core in the menu and then refuses to start anything, which
@@ -998,6 +1020,41 @@ class App(ttk.Frame):
         got = cheatfile.limits(platform)
         self.meter.set_limit(got[1] if got else None)
 
+    def retune_applied(self, platform: str) -> None:
+        """Show the Applied column only where there is more than one answer.
+
+        Game Boy has two mechanisms and the difference between them is the
+        whole of the cartridge warning, so it gets a column. PC Engine has one:
+        every published cheat for it is a RAM poke, and a column repeating that
+        down every row is noise dressed as information. The fact is stated once
+        underneath instead, which is also where it belongs for a system whose
+        codes cannot be read at all.
+        """
+        if platform == self.applied_platform:
+            return
+        self.applied_platform = platform
+        ways = cheatfile.mechanisms(platform)
+        if len(ways) >= 2:
+            self.cheats.heading("how", text="Applied")
+            self.cheats.column("how", width=64, minwidth=40, stretch=False)
+            self.applied_note.config(text=(
+                "Applied: written = the value is put into RAM each frame, so "
+                "the game can still clamp it.  patched = the CPU's read is "
+                "overridden."))
+            return
+        # Collapse it rather than leave an empty column with a heading over it.
+        self.cheats.heading("how", text="")
+        self.cheats.column("how", width=0, minwidth=0, stretch=False)
+        if ways == ("poke",):
+            self.applied_note.config(text=(
+                "Every cheat here is written into RAM once a frame, so the "
+                "game's own logic still sees the value and can clamp it. This "
+                "system has no read-override codes."))
+        else:
+            self.applied_note.config(text=(
+                "The codes for this system are carried exactly as written. "
+                "Nothing here claims to know what any of them does."))
+
     def refresh_cheats(self) -> None:
         v = self.view
         with timing.stage("clear the cheat pane"):
@@ -1040,14 +1097,21 @@ class App(ttk.Frame):
             self.meter.set(0)
             return
         self.retune_meter(v.platform)
+        self.retune_applied(v.platform)
         codes = sum(len(e.group.codes) for e in v.enabled)
         self.meter.set(codes)
         written, patched = v.applied_counts
         msg = f"{len(v.enabled)} of {len(v.entries)} cheats on"
-        if written or patched:
+        if len(cheatfile.mechanisms(v.platform)) >= 2 and (written or patched):
             msg += f" ({written} written, {patched} patched)"
-        elif not cheatfile.decoded(v.platform):
-            msg += "   codes carried as written; this core does not read them yet"
+        if not cheatfile.decoded(v.platform):
+            msg += "   codes carried as written; nothing reads them yet"
+        elif not core_mod.released(v.platform):
+            # Readable codes and a correct file, and still nothing on the
+            # handheld that will act on it. Worth saying, since everything
+            # else on screen looks exactly like a system that works.
+            msg += (f"   the {self.platform_name(v.platform)} core is not "
+                    "released yet")
         # Ticking nothing and sending is how you take cheats off a game, and
         # it works, but "Send to Pocket" does not read like a deletion. The
         # button says which of the two it is about to do.

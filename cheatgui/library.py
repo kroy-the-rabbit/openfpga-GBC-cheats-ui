@@ -34,11 +34,19 @@ def is_local(path: str) -> bool:
 # the card gives no hint which. Game Boy Advance does not share with either.
 # Its codes are a different language, so a Game Boy file matched to a GBA ROM
 # would not be a near miss, it would be nonsense. See cheatfile.py.
+#
+# PC Engine shares with nothing, and it has two neighbours it might look like
+# it should: libretro also ships SuperGrafx and PC Engine CD directories, and
+# this core runs neither.
 SEARCH = {
     "gbc": ("gbc", "gb"),
     "gb":  ("gb", "gbc"),
     "gba": ("gba",),
+    "pce": ("pce",),
 }
+# A system switched off in card.ENABLED disables itself here: _files_for drops
+# any id that is not in card.SUPPORTED, so an entry above for a system that is
+# not offered resolves to no directories rather than to a stale one.
 
 
 class MissingDatabase(Exception):

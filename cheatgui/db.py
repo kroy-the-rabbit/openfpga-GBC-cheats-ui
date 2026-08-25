@@ -6,7 +6,7 @@ back on, so it fetches its own copy into the user's data directory. That copy
 is what a released binary uses; a checkout of this repo can still use the git
 submodule, and POCKET_CHEAT_DB overrides both.
 
-Only the three Game Boy directories are fetched, about 3000 files and 15 MB.
+Only the directories in DIRS are fetched, about 3400 files and 16 MB.
 The whole repository is a 177 MB tarball and 830 MB checked out, nearly all of
 it systems this core cannot run, so the files are taken one at a time from the
 CDN at a pinned commit rather than cloning anything. That also means no git on
@@ -29,14 +29,17 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import card
+
 REPO = "libretro/libretro-database"
 API = f"https://api.github.com/repos/{REPO}"
 RAW = f"https://raw.githubusercontent.com/{REPO}"
 
-# The libretro directory names, which are also the names on disk.
-# card.SUPPORTED maps Pocket platform ids to these.
-DIRS = ("Nintendo - Game Boy", "Nintendo - Game Boy Color",
-        "Nintendo - Game Boy Advance")
+# The libretro directory names, which are also the names on disk. Taken from
+# card rather than repeated, because a directory fetched that nothing reads is
+# wasted download and one read that nothing fetches is a system that is
+# permanently empty. Turning a system off in card.ENABLED turns it off here.
+DIRS = tuple(card.SUPPORTED[p] for p in card.ENABLED)
 
 # Enough to keep the link busy without looking like a scrape. The files average
 # 5 KB, so this is latency bound rather than bandwidth bound.
@@ -271,7 +274,7 @@ def describe(local: dict | None, remote: dict | None = None) -> str:
     if absent:
         # Named, because "incomplete" on its own does not say what is missing
         # or hint that pressing Update is what fixes it.
-        short = ", ".join(d.replace("Nintendo - ", "") for d in absent)
+        short = ", ".join(short_name(d) for d in absent)
         return line + f"  nothing for {short}: press Update"
     if remote is None:
         return line
@@ -281,6 +284,18 @@ def describe(local: dict | None, remote: dict | None = None) -> str:
     if up_to_date(local, remote):
         return line + "  up to date"
     return line + f"  update available: {latest}"
+
+
+def short_name(directory: str) -> str:
+    """A libretro directory without its manufacturer, for a one line report.
+
+    Every one of them is "<maker> - <system>", so the maker is dropped rather
+    than any particular maker being special-cased. This used to strip the
+    literal "Nintendo - ", which left "NEC - PC Engine - TurboGrafx 16" whole
+    and made the line run off the end of the bar.
+    """
+    _maker, sep, rest = directory.partition(" - ")
+    return rest if sep and rest else directory
 
 
 def day(iso: str | None) -> str | None:

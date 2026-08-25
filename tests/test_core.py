@@ -27,6 +27,34 @@ import core                                                  # noqa: E402
 
 GBC = core.CORES[0]
 GB = core.CORES[1]
+PCE = core.CORES[2]
+
+
+def releases(version: str, repos=None, assets=True) -> dict:
+    """A newest-release-per-repository map, the shape the app carries around."""
+    out = {}
+    for repo in (repos if repos is not None else core.repos()):
+        names = {}
+        if assets:
+            names = {f"{c.asset}{version}.zip": "zip:" + c.id
+                     for c in core.CORES if c.repo == repo}
+        out[repo] = {"repo": repo, "tag": "v" + version, "version": version,
+                     "page": "", "assets": names}
+    return out
+
+
+def every(version: str | None) -> dict:
+    """What installed() would report with every core at one version."""
+    return {c.id: version for c in core.CORES}
+
+
+def have(**by_id) -> dict:
+    """An installed() result: named cores at a version, the rest absent.
+
+    Written out rather than a literal so that listing another core does not
+    make every one of these assertions wrong.
+    """
+    return {c.id: by_id.get(c.id.replace(".", "_")) for c in core.CORES}
 
 
 def core_json(cid: str, platform: str, version: str) -> str:
@@ -80,8 +108,7 @@ class Env(unittest.TestCase):
 
 class Installed(Env):
     def test_absent_core_reads_as_none(self) -> None:
-        self.assertEqual(core.installed(self.root),
-                         {GBC.id: None, GB.id: None})
+        self.assertEqual(core.installed(self.root), every(None))
 
     def test_version_comes_from_the_cards_own_core_json(self) -> None:
         install_core(self.root, GBC, "1.4.0-cheats.9")
@@ -157,41 +184,103 @@ class BootRoms(Env):
 
 
 class Versions(unittest.TestCase):
-    def remote(self, version: str) -> dict:
-        return {"tag": "v" + version, "version": version, "page": "",
-                "assets": {f"{c.asset}{version}.zip": "http://example/x.zip"
-                           for c in core.CORES}}
-
     def test_the_released_version_is_up_to_date(self) -> None:
-        rem = self.remote("1.4.0-cheats.9")
-        have = {c.id: "1.4.0-cheats.9" for c in core.CORES}
-        self.assertEqual(core.outdated(have, rem), [])
+        rels = releases("1.4.0-cheats.9")
+        have = every("1.4.0-cheats.9")
+        self.assertEqual(core.outdated(have, rels), [])
         self.assertNotIn("update available", core.describe(
-            core.Survey("/card", have, []), rem)[0])
+            core.Survey("/card", have, []), rels)[0])
 
     def test_an_absent_core_is_outdated(self) -> None:
-        rem = self.remote("1.4.0-cheats.9")
-        have = {c.id: None for c in core.CORES}
-        self.assertEqual([c.id for c in core.outdated(have, rem)],
-                         [c.id for c in core.CORES])
+        rels = releases("1.4.0-cheats.9")
+        self.assertEqual([c.id for c in core.outdated(every(None), rels)],
+                         [GBC.id, GB.id])
 
     def test_no_core_at_all_says_so_loudly(self) -> None:
-        sv = core.Survey("/card", {c.id: None for c in core.CORES}, [])
+        sv = core.Survey("/card", every(None), [])
         text, bad = core.describe(sv, None)
         self.assertTrue(bad)
         self.assertIn("not installed", text)
 
     def test_only_the_core_that_differs_is_listed(self) -> None:
-        rem = self.remote("2.0")
+        rels = releases("2.0")
         have = {GBC.id: "1.0", GB.id: "2.0"}
-        self.assertEqual([c.id for c in core.outdated(have, rem)], [GBC.id])
+        self.assertEqual([c.id for c in core.outdated(have, rels)], [GBC.id])
 
     def test_a_release_with_no_zip_for_a_core_cannot_update_it(self) -> None:
-        rem = self.remote("2.0")
-        del rem["assets"][f"{GB.asset}2.0.zip"]
-        self.assertEqual([c.id for c in core.outdated({GBC.id: None,
-                                                       GB.id: None}, rem)],
+        rels = releases("2.0")
+        del rels[GB.repo]["assets"][f"{GB.asset}2.0.zip"]
+        self.assertEqual([c.id for c in core.outdated(every(None), rels)],
                          [GBC.id])
+
+
+class Unreleased(unittest.TestCase):
+    """A core whose repository does not exist yet.
+
+    PC Engine is in CORES so that a hand-built copy on a card is reported, and
+    it must never be offered for install: there is nothing to install, and an
+    Install button that 404s is worse than one that does not appear.
+    """
+
+    def test_it_has_no_repository(self) -> None:
+        self.assertIsNone(PCE.repo)
+
+    def test_it_is_never_outdated(self) -> None:
+        self.assertNotIn(PCE, core.outdated(every(None), releases("2.0")))
+
+    def test_it_contributes_no_repository_to_fetch(self) -> None:
+        self.assertNotIn(None, core.repos())
+        self.assertEqual(core.repos(), (GBC.repo,))
+
+    def test_its_platform_reads_as_unreleased(self) -> None:
+        self.assertTrue(core.released("gbc"))
+        self.assertTrue(core.released("gb"))
+        self.assertFalse(core.released("pce"))
+        self.assertFalse(core.released("gba"))
+
+    def test_an_installed_copy_is_still_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            install_core(root, PCE, "0.1-local")
+            sv = core.survey(root)
+            self.assertEqual(sv.versions[PCE.id], "0.1-local")
+            self.assertIn(f"{PCE.id} 0.1-local",
+                          core.describe(sv, releases("2.0"))[0])
+
+    def test_a_card_with_only_it_is_still_up_to_date_about_the_rest(self) -> None:
+        # Its absence from the release map must not read as "out of date".
+        have = {GBC.id: "2.0", GB.id: "2.0", PCE.id: None}
+        self.assertEqual(core.outdated(have, releases("2.0")), [])
+
+
+class NoBios(Env):
+    """An empty `bios` tuple is an answer, not a missing one.
+
+    The PC Engine has no boot ROM. A card with that core and nothing in
+    Assets/pce is complete, and reporting it as incomplete would send people
+    looking for a file that does not exist.
+    """
+
+    def test_the_table_says_it_needs_nothing(self) -> None:
+        self.assertEqual(PCE.bios, ())
+
+    def test_a_core_declaring_no_fixed_files_wants_none(self) -> None:
+        install_core(self.root, PCE, "1.0")
+        self.assertEqual(core.wanted(self.root, PCE), ())
+
+    def test_it_raises_no_boot_rom_problem(self) -> None:
+        install_core(self.root, PCE, "1.0")
+        sv = core.survey(self.root)
+        self.assertEqual(sv.roms, [])
+        self.assertEqual(sv.problems(), [])
+        text, bad = core.describe_roms(sv)
+        self.assertFalse(bad)
+        self.assertNotIn("missing", text)
+
+    def test_it_does_not_hide_another_cores_missing_rom(self) -> None:
+        install_core(self.root, PCE, "1.0")
+        install_core(self.root, GBC, "1.0")
+        bad = core.survey(self.root).problems()
+        self.assertEqual([r.rom.filename for r in bad], ["gbc_bios.bin"])
 
 
 class Archive(Env):
@@ -265,7 +354,7 @@ class Place(Env):
         install_core(self.root, GB, "0.9")
         core._place(self.stage(GBC, "1.0"), self.root, GBC)
         self.assertEqual(core.installed(self.root),
-                         {GBC.id: "1.0", GB.id: "0.9"})
+                         have(kroy_GBC="1.0", kroy_GB="0.9"))
 
     def test_a_card_with_no_cores_directory_gets_one(self) -> None:
         core._place(self.stage(GBC, "1.0"), self.root, GBC)
@@ -274,11 +363,6 @@ class Place(Env):
 
 class InstallEnd(Env):
     """install(), with the download replaced but the card work real."""
-
-    def remote(self, version: str) -> dict:
-        return {"tag": "v" + version, "version": version, "page": "",
-                "assets": {f"{c.asset}{version}.zip": "zip:" + c.id
-                           for c in core.CORES}}
 
     def setUp(self) -> None:
         super().setUp()
@@ -296,29 +380,29 @@ class InstallEnd(Env):
         self.addCleanup(lambda: setattr(core, "_fetch", self.real))
 
     def test_a_bare_card_gets_both_cores(self) -> None:
-        rem = self.remote("1.0")
-        core.install(self.root, rem)
+        rels = releases("1.0")
+        core.install(self.root, rels)
         self.assertEqual(core.installed(self.root),
-                         {GBC.id: "1.0", GB.id: "1.0"})
+                         have(kroy_GBC="1.0", kroy_GB="1.0"))
 
     def test_nothing_to_do_writes_nothing(self) -> None:
-        rem = self.remote("1.0")
-        core.install(self.root, rem)
-        self.assertEqual(core.install(self.root, rem), [])
+        rels = releases("1.0")
+        core.install(self.root, rels)
+        self.assertEqual(core.install(self.root, rels), [])
 
     def test_the_staging_directory_does_not_survive(self) -> None:
-        core.install(self.root, self.remote("1.0"))
+        core.install(self.root, releases("1.0"))
         self.assertFalse(os.path.exists(os.path.join(self.root,
                                                      core.STAGING)))
 
     def test_a_stopped_install_leaves_the_old_core_running(self) -> None:
         install_core(self.root, GBC, "0.9")
         install_core(self.root, GB, "0.9")
-        rem = self.remote("1.0")
+        rels = releases("1.0")
         with self.assertRaises(core.Cancelled):
-            core.install(self.root, rem, cancelled=lambda: True)
+            core.install(self.root, rels, cancelled=lambda: True)
         self.assertEqual(core.installed(self.root),
-                         {GBC.id: "0.9", GB.id: "0.9"})
+                         have(kroy_GBC="0.9", kroy_GB="0.9"))
         self.assertFalse(os.path.exists(os.path.join(self.root,
                                                      core.STAGING)))
 
@@ -330,14 +414,14 @@ class InstallEnd(Env):
 
         core._fetch = boom
         with self.assertRaises(RuntimeError):
-            core.install(self.root, self.remote("1.0"))
+            core.install(self.root, releases("1.0"))
         self.assertEqual(core.installed(self.root)[GBC.id], "0.9")
 
     def test_boot_roms_are_not_disturbed_by_an_install(self) -> None:
         rom = os.path.join(self.root, "Assets", "gbc", "common",
                            "gbc_bios.bin")
         write(rom, "z" * 2304)
-        core.install(self.root, self.remote("1.0"), cores=[GBC])
+        core.install(self.root, releases("1.0"), cores=[GBC])
         self.assertEqual(core.survey(self.root).problems(), [])
         self.assertEqual(os.path.getsize(rom), 2304)
 

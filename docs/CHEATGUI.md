@@ -152,47 +152,112 @@ Three panes: the systems on the card, the games in the selected system, and the
 cheats for the selected game. Tick the ones you want and press **Send to
 Pocket**.
 
-**Game Boy**, **Game Boy Color** and **Game Boy Advance** are listed. An NES or
-SNES core on the same card ignores cheat files entirely, so offering checkboxes
+**Game Boy**, **Game Boy Color** and **PC Engine** are listed. An NES or SNES
+core on the same card ignores cheat files entirely, so offering checkboxes
 there would be a lie.
 
-**Game Boy Advance is work in progress and nothing sent to it works yet.** The
-[GBA core](https://github.com/mincer-ray/openfpga-GBA) has no cheat data slot,
-so a file written next to a GBA ROM is ignored by the hardware. It is listed
-so the cartridges and the files can be prepared in advance. Expect what this
-app shows for GBA to change once that core defines a cheat format, and expect
-to have to revisit files prepared before then.
+Which systems are offered is one tuple, `card.ENABLED`. Everything else follows
+from it: the database directories fetched, the ROM extensions recognised, the
+directories searched for a match. A system listed there and fetched but never
+read would be wasted download; one read but never fetched would be permanently
+empty, so they come from the same place and cannot drift.
 
-## Game Boy Advance codes are carried, not read
+**Game Boy Advance is switched off.** It used to be listed so files could be
+prepared in advance, but the
+[GBA core](https://github.com/mincer-ray/openfpga-GBA) has no cheat data slot
+at all, so nothing written beside a GBA ROM is ever read, and its codes cannot
+be decoded either. The result was a system, a game list and a set of checkboxes
+that could do nothing in either direction, plus 513 database files fetched for
+it. The support is still in the source, including the opaque code carrying
+described below; put `"gba"` back in `card.ENABLED` when a core defines a cheat
+format.
+
+## PC Engine is the other way round from Game Boy
+
+**Every published PC Engine cheat is a RAM poke. None is a ROM patch.** There is
+no Game Genie for this machine. On Game Boy the read override is the primary
+mechanism and the poker is the addition; here there is only the poker.
+
+That is why the **Applied** column disappears when you select a PC Engine game.
+A column carrying the same word in every row is noise dressed as information,
+so the fact is stated once underneath instead. `cheatfile.MECHANISMS` is what
+decides this, and `ui.retune_applied` is what acts on it.
+
+The 397 files in the libretro directory come in two shapes, and a file uses one
+or the other. Counted in full on 2026-08-25:
+
+| | | |
+|---|---:|---|
+| form A | 246 files | `cheat0_code = "1f1548:64"`, a hex CPU address and a hex byte, several joined by `+` |
+| form B | 151 files | `cheat0_code = ""` and the code in `cheat0_address` (a **decimal** offset into work RAM), `cheat0_value`, `cheat0_cheat_type` and a pile of `cheat0_rumble_*` |
+
+Form B is RetroArch's own cheat-search format. It matters because a parser that
+only handles form A shows well over a third of the directory as empty, and 104
+of those 151 files carry ordinary game names rather than the `(Rumbles)` suffix
+you might filter on. `cheatgui/pce.py` reads both and writes both back in form
+A, which is what the core's loader will read.
+
+Four kinds of row are listed with their description and no codes, so they show
+greyed rather than silently vanishing:
+
+* **70 rows with `cheat_type = 0`**, RetroArch's "disabled". The row watches an
+  address to fire a rumble and never writes anything. Converting one into a
+  poke would invent a cheat: "Rumble on gold change" with value 5 would pin
+  your gold to 5.
+* **2 bit-level rows** in Wonder Momo, `memory_search_size = 0`. There is no
+  way to express a partial byte here and it will not be guessed.
+* **1 row with no value at all**, also Wonder Momo.
+* **3 rows with an impossible address.** Bomberman 94 carries
+  `18446744073709546426`, which is -5190 written as an unsigned 64-bit number;
+  both Magical Chase files carry `1f0000f:0c`, seven hex digits where all 1027
+  other codes have six, and past the 21 address lines the HuC6280 has.
+
+Two things it does carry that look odd and are not. The **repeat family**
+(`repeat_count`, `repeat_add_to_address`) is expanded: eleven rows use it with
+a count of 1, where it means nothing, and one does not. Wonder Momo's "One hit
+kills bosses" is a count of 2 stepping the address by 32, and reading only the
+first half would half-apply it. And **13 codes sit between 0x1F2000 and
+0x1F2656**, which is inside the 32KB a SuperGrafx carries and outside the 8KB
+everything else does; they are addressable and, on a core that drops SuperGrafx,
+unreachable. `pce.in_work_ram` is how to ask.
+
+There is no code store meter for PC Engine, only a count. The core has not
+fixed a poker table size, and a number on screen that no hardware agrees with
+is worse than none.
+
+## Codes we cannot read are carried, not guessed
+
+This is what happens for a system with no decoder, which today is none of the
+ones listed and was Game Boy Advance until it was switched off. It is written
+down because it is the rule the next system arrives under.
 
 GBA cheats are a different language from Game Boy ones. A CodeBreaker code is
 an eight digit address and a four digit value joined with `+`, like
 `3300786D+00FF`; a Game Boy GameShark code is eight digits meaning something
 else entirely.
 
-Handing a GBA file to the Game Boy parser does not fail, which is the whole
+Handing such a file to the Game Boy parser does not fail, which is the whole
 problem. It sees eight hex digits, reads them as a GameShark code, and reports
 a write of `0x00` to `$6D78`, an address that is not in the code at all. The
 `+00FF` is four digits, matches nothing, and is dropped. Every cheat in the
 file comes out looking plausible and meaning nothing, and a file written back
 from that has lost half of itself.
 
-So GBA files are carried verbatim instead. You can list, pick and send them,
-and the file written to the card is character for character what the database
-had. What you do not get is anything this app would have to invent:
+PC Engine is the same trap with different numbers: `1f1548:64` is a poke of
+0x64 into work RAM, and the Game Boy parser reads the six hex digits as a Game
+Genie code and reports a ROM patch of 0x1F to `$7154`. Wrong mechanism, wrong
+address, wrong value, and nothing anywhere says so. That is why `cheatfile.py`
+routes by platform rather than running one parser over everything, and why
+`tests/test_pce.py` pins that exact wrong answer.
 
-* the **Applied** column is blank, because whether a code is a write or a patch
-  is a property of a core that does not exist yet
-* there is no code store meter, only a count, since no limit has been published
-  to measure against
-* GBA cheat files are matched only against GBA ROMs. Game Boy and Game Boy
-  Color share a search, because a GBC release filed under Game Boy is a near
-  miss worth catching; a Game Boy file matched to a GBA ROM would not be a near
-  miss, it would be nonsense.
-
-When the GBA core defines its cheat format, the decoder goes in
-`cheatgui/cheatfile.py` and the display fills itself in. Until then, refusing
-to guess is the only honest thing this can do.
+So a file we cannot decode is carried verbatim instead. You can list, pick and
+send it, and what lands on the card is character for character what the
+database had. What you do not get is anything this app would have to invent:
+the **Applied** column, and a code store meter. Matching is also restricted to
+that system's own directory: Game Boy and Game Boy Color share a search,
+because a GBC release filed under Game Boy is a near miss worth catching, and
+so is `pce` restricted to its own, since libretro also ships SuperGrafx and
+PC Engine CD directories that this core runs neither of.
 
 The **Applied** column says how the core makes each cheat take effect, because
 the two ways do not behave the same:

@@ -29,15 +29,14 @@ import io
 import json
 import os
 import shutil
+import urllib.error
 import urllib.request
 import zipfile
 from dataclasses import dataclass
 
 from db import UA, ssl_context          # one CA story for the whole app
 
-REPO = "kroy-the-rabbit/openfpga-GBC-cheats"
-API = f"https://api.github.com/repos/{REPO}"
-RELEASES = f"https://github.com/{REPO}/releases"
+API = "https://api.github.com/repos"
 
 TIMEOUT = 30
 CHUNK = 64 * 1024
@@ -76,27 +75,67 @@ class Rom:
 
 @dataclass(frozen=True)
 class Core:
-    """One Pocket core: a directory under /Cores and a zip in the release."""
+    """One Pocket core: a directory under /Cores and a zip in a release."""
     id: str                     # the /Cores directory name, "<author>.<name>"
     platform: str               # the Pocket platform id it runs
     title: str                  # what to call it in a sentence
     asset: str                  # start of its filename in the release
-    bios: tuple[Rom, ...]       # what it needs, when it is not installed yet
+    repo: str | None            # where its releases come from, None if none yet
+    bios: tuple[Rom, ...] = ()  # what it needs, when it is not installed yet
 
 
-# The cores this app writes cheat files for. One release covers both systems,
-# which is why there is one repository above and two entries here.
+GBC_REPO = "kroy-the-rabbit/openfpga-GBC-cheats"
+
+# The cores this app writes cheat files for.
+#
+# The repository is per core rather than per app because it stopped being one
+# repository: openfpga-GBC-cheats releases both Game Boy cores together, and PC
+# Engine ships from a fork of a different core entirely. Game Boy Advance will
+# be a third.
+#
+# A core with `repo=None` has no release to install yet. It is still listed,
+# because a card may already carry a hand-built copy and reporting its version
+# and its boot ROMs is useful; nothing offers to install or update it.
 #
 # The boot ROMs listed are the fallback for a card that has no core on it yet.
 # Once one is installed its own data.json is asked instead, so a core that
-# starts wanting a different file says so itself. See wanted().
+# starts wanting a different file says so itself. See wanted(). An empty tuple
+# is a real answer, not a missing one: the PC Engine has no boot ROM.
 CORES = (
-    Core("kroy.GBC", "gbc", "Game Boy Color", "kroy.GBC_",
+    Core("kroy.GBC", "gbc", "Game Boy Color", "kroy.GBC_", GBC_REPO,
          (Rom("gbc_bios.bin", 2304, "GBC BIOS"),)),
-    Core("kroy.GB", "gb", "Game Boy", "kroy.GB_",
+    Core("kroy.GB", "gb", "Game Boy", "kroy.GB_", GBC_REPO,
          (Rom("gb_bios.bin", 256, "DMG BIOS"),
           Rom("sgb_boot.bin", 256, "SGB BIOS"))),
+    # Upstream ships as "agg23.PC Engine", with a space in the directory name.
+    # The fork renames to kroy.PCE, to match the others and so nothing here has
+    # to handle the space. A card carrying the upstream core alongside is not
+    # seen, which is right: it is a different core and reads no cheat files.
+    Core("kroy.PCE", "pce", "PC Engine", "kroy.PCE_", None, ()),
 )
+
+
+def repos() -> tuple[str, ...]:
+    """Every repository the cores come from, once each, in listed order."""
+    out: list[str] = []
+    for c in CORES:
+        if c.repo and c.repo not in out:
+            out.append(c.repo)
+    return tuple(out)
+
+
+def releases_page(repo: str) -> str:
+    return f"https://github.com/{repo}/releases"
+
+
+def released(platform: str) -> bool:
+    """Whether anything on this system has a core you can actually install.
+
+    False for Game Boy Advance, which has no core here at all, and for PC
+    Engine, whose core is being built. Cheat files can be prepared for both;
+    nothing on the handheld reads them yet.
+    """
+    return any(c.platform == platform and c.repo for c in CORES)
 
 
 # ------------------------------------------------------------------ the card --
@@ -221,48 +260,88 @@ def survey(root: str) -> Survey:
 
 
 # --------------------------------------------------------------- the release --
-def latest(timeout: int = TIMEOUT) -> dict:
-    """The newest release: its tag, its version, and the zips in it."""
+def latest(repo: str, timeout: int = TIMEOUT) -> dict | None:
+    """One repository's newest release, or None when it has none yet.
+
+    A repository with no release answers 404, which is an answer rather than a
+    failure: the PC Engine core will be in that state until its first tag.
+    Anything else raises, so being offline still reads as being offline.
+    """
     req = urllib.request.Request(
-        f"{API}/releases/latest",
+        f"{API}/{repo}/releases/latest",
         headers={**UA, "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(req, timeout=timeout,
-                                context=ssl_context()) as f:
-        rel = json.load(f)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout,
+                                    context=ssl_context()) as f:
+            rel = json.load(f)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise
     tag = rel.get("tag_name") or ""
     return {
+        "repo": repo,
         "tag": tag,
         # core.json carries the tag without its leading v, which is what an
         # installed version is compared against.
         "version": tag[1:] if tag.startswith("v") else tag,
-        "page": rel.get("html_url") or RELEASES,
+        "page": rel.get("html_url") or releases_page(repo),
         "assets": {a["name"]: a["browser_download_url"]
                    for a in rel.get("assets") or []},
     }
 
 
-def asset_for(core: Core, remote: dict) -> str | None:
-    for name, url in sorted(remote.get("assets", {}).items()):
+def all_latest(timeout: int = TIMEOUT) -> dict[str, dict]:
+    """The newest release of every repository the cores come from.
+
+    Keyed by repository. A repository with no release is simply absent, so
+    everything downstream asks the same question of it as of one this app has
+    never heard of.
+    """
+    out = {}
+    for repo in repos():
+        rel = latest(repo, timeout)
+        if rel is not None:
+            out[repo] = rel
+    return out
+
+
+def release_for(core: Core, rels: dict[str, dict]) -> dict | None:
+    return rels.get(core.repo) if core.repo else None
+
+
+def asset_for(core: Core, rels: dict[str, dict]) -> str | None:
+    rel = release_for(core, rels)
+    if rel is None:
+        return None
+    for name, url in sorted(rel.get("assets", {}).items()):
         if name.startswith(core.asset) and name.endswith(".zip"):
             return url
     return None
 
 
-def outdated(versions: dict[str, str | None], remote: dict) -> list[Core]:
-    """The cores that would change if the latest release were installed.
+def outdated(versions: dict[str, str | None],
+             rels: dict[str, dict]) -> list[Core]:
+    """The cores that would change if the newest releases were installed.
 
     Absent counts, and so does any version that is not the released one:
     a card carrying a newer local build is still not carrying this release,
     and saying "up to date" about it would be a guess at which is newer.
+
+    A core with no release is never in here. There is nothing to install.
     """
-    want = remote.get("version")
-    if not want:
-        return []
-    return [c for c in CORES if versions.get(c.id) != want
-            and asset_for(c, remote) is not None]
+    out = []
+    for c in CORES:
+        rel = release_for(c, rels)
+        if rel is None or not rel.get("version"):
+            continue
+        if versions.get(c.id) != rel["version"] and asset_for(c, rels):
+            out.append(c)
+    return out
 
 
-def describe(sv: Survey | None, remote: dict | None) -> tuple[str, bool]:
+def describe(sv: Survey | None,
+             rels: dict[str, dict] | None) -> tuple[str, bool]:
     """One line for the status bar, and whether it is bad news."""
     if sv is None:
         return "Pocket core: no card", False
@@ -271,17 +350,23 @@ def describe(sv: Survey | None, remote: dict | None) -> tuple[str, bool]:
         return ("Pocket core: not installed. Nothing written here has any "
                 "effect until it is."), True
     line = "Pocket core: " + ", ".join(have)
-    if remote is None:
+    if not rels:
+        # Nothing to compare against, whether because nobody has asked yet or
+        # because the ask found no releases at all. Neither is "up to date".
         return line, False
-    behind = outdated(sv.versions, remote)
+    behind = outdated(sv.versions, rels)
     if not behind:
         return line + "  up to date", False
+    versions = sorted({release_for(c, rels)["version"] for c in behind})
     names = ", ".join(c.id for c in behind)
-    return f"{line}  update available: {remote['version']} ({names})", True
+    return f"{line}  update available: {', '.join(versions)} ({names})", True
 
 
 def describe_roms(sv: Survey | None) -> tuple[str, bool]:
-    if sv is None or not sv.any_core():
+    if sv is None or not sv.any_core() or not sv.roms:
+        # No line rather than "0 present". A core that needs no boot ROM is a
+        # real thing, not a card with something missing: the PC Engine has
+        # none, and saying "0 present" about it reads like a fault.
         return "", False
     bad = sv.problems()
     if not bad:
@@ -406,7 +491,7 @@ def _place(staged: str, root: str, core: Core) -> list[str]:
     return written
 
 
-def install(root: str, remote: dict, cores=None, progress=None,
+def install(root: str, rels: dict[str, dict], cores=None, progress=None,
             cancelled=None, timeout: int = TIMEOUT) -> list[str]:
     """Put the release on the card. Returns what was written.
 
@@ -425,7 +510,7 @@ def install(root: str, remote: dict, cores=None, progress=None,
     def stop() -> bool:
         return bool(cancelled and cancelled())
 
-    todo = list(cores if cores is not None else outdated(installed(root), remote))
+    todo = list(cores if cores is not None else outdated(installed(root), rels))
     if not todo:
         return []
 
@@ -435,7 +520,7 @@ def install(root: str, remote: dict, cores=None, progress=None,
     written: list[str] = []
     try:
         for n, core in enumerate(todo, 1):
-            url = asset_for(core, remote)
+            url = asset_for(core, rels)
             if url is None:
                 raise RuntimeError(f"the release has no zip for {core.id}")
             here = f"{core.title} core ({n} of {len(todo)})"

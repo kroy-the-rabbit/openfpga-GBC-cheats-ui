@@ -25,9 +25,15 @@ LIST = os.path.join(os.path.dirname(prefs.CONFIG), "cartridges.json")
 CARD_DIR = "Cartridges"
 
 # The systems a cartridge can be filed under, in the order they are shown.
-# These are the two the Pocket has a cheat-reading core for, so there is
-# nothing else a cartridge could sensibly be.
-PLATFORMS = ("gbc", "gb", "gba")
+#
+# Not card.ENABLED, and the difference is the point. A system can be listed
+# there and still have no cartridge path: PC Engine is loaded from the SD card
+# only. Analogue do ship a TurboGrafx-16 adapter and openFPGA cores genuinely
+# can read physical carts, as the Game Boy support here proves, but that core
+# keeps `cartridge_adapter` at -1 and will not. So for PC Engine every
+# cartridge path in this app is dead code rather than merely unused, and
+# keeping it out of this tuple is what makes it unreachable.
+PLATFORMS = ("gbc", "gb")
 DEFAULT_PLATFORM = "gbc"
 
 

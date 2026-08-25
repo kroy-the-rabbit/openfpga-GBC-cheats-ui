@@ -1,7 +1,7 @@
 # Pocket cheat picker
 
 A small desktop app for choosing which cheats go on an Analogue Pocket SD card,
-for the Game Boy, Game Boy Color and Game Boy Advance cores.
+for the Game Boy, Game Boy Color and PC Engine / TurboGrafx-16 cores.
 
 > **Use at your own risk. Cheats can corrupt save files.**
 >
@@ -15,8 +15,8 @@ for the Game Boy, Game Boy Color and Game Boy Advance cores.
 > Back your saves up before using cheats on anything you care about, and read
 > [Cartridges](#cartridges-read-this-part) before using them on one.
 >
-> **Game Boy Advance support is work in progress.** See
-> [Game Boy Advance](#game-boy-advance-is-work-in-progress).
+> **PC Engine support is ahead of its core.** See
+> [PC Engine](#pc-engine--turbografx-16-is-ahead-of-its-core).
 
 Three panes: the systems on the card, the games in each, and the cheats for the
 selected game. Tick what you want and press **Send to Pocket**. The file next to
@@ -38,7 +38,7 @@ has any effect:
 | Core | Covers | Status |
 |---|---|---|
 | [openfpga-GBC-cheats](https://github.com/kroy-the-rabbit/openfpga-GBC-cheats) | Game Boy, Game Boy Color | released, [download](https://github.com/kroy-the-rabbit/openfpga-GBC-cheats/releases) |
-| [openfpga-GBA-cheats](https://github.com/kroy-the-rabbit/openfpga-GBA-cheats) | Game Boy Advance | not released yet, see [below](#game-boy-advance-is-work-in-progress) |
+| openfpga-PCE-cheats | PC Engine, TurboGrafx-16 | being built, see [below](#pc-engine--turbografx-16-is-ahead-of-its-core) |
 
 Both are forks that add a cheat engine to somebody else's core, and both keep
 their own install notes. Only the first one is released, and the app can put it
@@ -119,9 +119,9 @@ Full guide: [docs/CHEATGUI.md](docs/CHEATGUI.md).
 
 ## The cheat database
 
-The app needs the libretro cheat database, about 3000 files across the three
+The app needs the libretro cheat database, about 2900 files across the three
 systems. It has none on first run: press **Update** in the bar along the
-bottom and it fetches one, roughly 15 MB and a minute. It comes from
+bottom and it fetches one, roughly 14 MB and a minute. It comes from
 [libretro/libretro-database](https://github.com/libretro/libretro-database)
 and is CC-BY-SA-4.0; none of it is shipped with this app.
 
@@ -190,9 +190,12 @@ With a ROM on the card, none of this applies. The app reads the actual file,
 matches it, tells you which file it picked, and you can check a Game Genie
 compare byte against the ROM itself. A cartridge gives you none of that.
 
-Game Boy Advance cartridges can be listed and prepared the same way, but see
-[Game Boy Advance](#game-boy-advance-is-work-in-progress) first: nothing sent
-to one does anything yet.
+PC Engine has no cartridge path at all, and that is deliberate rather than
+missing. Analogue do ship a TurboGrafx-16 adapter and openFPGA cores genuinely
+can read physical carts, as the Game Boy support here proves, but that core
+does not: the adapter's signalling is undocumented and a HuCard needs more
+lines than the Game Boy scheme spends. So **Add cartridge...** offers Game Boy
+and Game Boy Color and nothing else.
 
 ## What goes wrong, and how
 
@@ -265,33 +268,43 @@ fault: **Cheats enabled** in the core menu is a single global switch.
 
 ---
 
-# Game Boy Advance is work in progress
+# PC Engine / TurboGrafx-16 is ahead of its core
 
-**Nothing you send to a Game Boy Advance game does anything yet, and when it
-starts working it may not do what this app currently shows.** It is here so
-the cartridges and the files can be prepared in advance, not because it works.
+**Nothing you send to a PC Engine game does anything yet, because the core is
+still being built.** The difference from a system that is merely unfinished is
+that the codes are already fully readable, so the files you prepare now should
+be right when the core lands.
 
-Two separate things are unfinished:
+What is settled, and what is not:
 
-* **The core does not read cheat files.** The
-  [GBA core](https://github.com/mincer-ray/openfpga-GBA) has no cheat data
-  slot, so a file written next to a GBA ROM sits on the card and is ignored.
-  There is nothing this app can do about that.
-* **The codes are carried, not understood.** GBA cheats are CodeBreaker and
-  Action Replay codes, a different language from Game Boy ones. This app
-  copies them through exactly as written rather than decoding them, because
-  guessing at a format no core has defined yet would be worse than admitting
-  it does not know. So the **Applied** column is blank for GBA cheats and
-  there is no code store meter: both describe a core that does not exist.
+* **The codes are read, not carried.** Every published PC Engine cheat is a RAM
+  poke, and this app decodes all 397 files in the libretro directory, both of
+  the two shapes they come in. What you tick is what gets written, in the same
+  form the database already uses.
+* **There is no code store meter**, because the core has not fixed one yet.
+  Putting a number on screen that no hardware agrees with is the one thing
+  that would be worse than showing none.
+* **The core is not released.** Until it is, the status line says so on every
+  PC Engine game, and a file beside a `.pce` ROM sits there and is ignored.
 
-What that means in practice: the file you write is faithful, and everything
-this app says about *what the cheats will do* is missing rather than wrong.
-When the GBA core defines its cheat format, expect the limits and the
-behavior shown here to change, and expect to have to look again at any files
-you prepared in the meantime.
+Three things are deliberately absent, and none of them is an oversight:
 
-[docs/CHEATGUI.md](docs/CHEATGUI.md) has the detail, including why running a
-GBA file through the Game Boy parser produces confident nonsense.
+* **SuperGrafx.** `.sgx` files are not listed. The core drops SuperGrafx to buy
+  the room its cheat engine needs, so those ROMs will not run correctly on it.
+* **PC Engine CD.** Not supported by the core this one forks, and not planned.
+* **Cartridges.** SD card only; see above.
+
+**Game Boy Advance is switched off.** It used to be listed so files could be
+prepared in advance, but its
+[core](https://github.com/mincer-ray/openfpga-GBA) has no cheat data slot at
+all and its codes cannot be decoded either, so the app was offering a system, a
+game list and a set of checkboxes that could do nothing in either direction.
+The support is still in the source behind one switch and comes back when a core
+defines a cheat format.
+
+[docs/CHEATGUI.md](docs/CHEATGUI.md) has the detail, including the two code
+shapes and why running either through the Game Boy parser produces confident
+nonsense.
 
 ## What it shows
 
@@ -332,6 +345,10 @@ code, but it exists because of them.
 |---|---|
 | [budude2/openfpga-GBC](https://github.com/budude2/openfpga-GBC) | the Pocket Game Boy / Game Boy Color core this was written for |
 | [MiSTer-devel/Gameboy_MiSTer](https://github.com/MiSTer-devel/Gameboy_MiSTer) | which that is a port of, carrying Till Harbaum's 2015 copyright and later contributors' |
+| [agg23/openfpga-pcengine](https://github.com/agg23/openfpga-pcengine) | the Pocket PC Engine core the cheat fork starts from, GPL-2.0 |
+| [vanfanel/openfpga-pcengine](https://github.com/vanfanel/openfpga-pcengine) | the branch of it the fork is based on |
+| [MiSTer-devel/TurboGrafx16_MiSTer](https://github.com/MiSTer-devel/TurboGrafx16_MiSTer) | which that is a port of, by srg320 and greyrogue |
+| [Torlus/FPGAPCE](https://github.com/Torlus/FPGAPCE) | Gregory Estrade's original, released into the public domain |
 | [mincer-ray/openfpga-GBA](https://github.com/mincer-ray/openfpga-GBA) | the Pocket Game Boy Advance core, GPL-2.0 |
 | [MiSTer-devel/GBA_MiSTer](https://github.com/MiSTer-devel/GBA_MiSTer) | which that is a port of, GPL-2.0 |
 | [SameBoy](https://github.com/LIJI32/SameBoy) | `Core/cheats.c`, the reference the Game Genie decoder follows. Expat (MIT) license, copyright Lior Halphon |
@@ -359,6 +376,7 @@ data directory. A cheat file this app writes to your card is a selection taken
 from those files, so if you pass one on, CC-BY-SA-4.0 is the license it came
 under and attribution and share-alike are what it asks for.
 
-The two Pocket cores are separate works under their own terms, GPL-2.0 for the
-Game Boy Advance one and per-file notices for the Game Boy one. Nothing from
-either is included here.
+The Pocket cores are separate works under their own terms: per-file notices for
+the Game Boy one, GPL-2.0 for the PC Engine and Game Boy Advance ones, over an
+original that its author put in the public domain. Nothing from any of them is
+included here.

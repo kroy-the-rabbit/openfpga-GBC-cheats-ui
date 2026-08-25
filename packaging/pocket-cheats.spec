@@ -19,8 +19,8 @@ SHARED = os.path.join(ROOT, "cheats")
 HIDDEN = [
     "card", "carts", "cheatfile", "cli", "core", "db", "library", "match",
     "meter",
-    "model", "prefs", "say", "single", "timing", "ui", "version", "work",
-    "writer",
+    "model", "pce", "prefs", "say", "single", "timing", "ui", "version",
+    "work", "writer",
     "chtparse", "ggdecode",
     # The only third-party thing in a build, and only because a frozen binary
     # has no trust store it can rely on: see db.ssl_context().

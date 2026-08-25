@@ -13,19 +13,38 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 
-# Pocket platform id -> the libretro cheat database directory for it. Only
-# these have a core that reads cheat files, so the tool does not offer to write
-# any for anything else on the card.
-#
-# The Game Boy Advance core does not read them yet. It is here so that the
-# cartridges and cheat files can be prepared now and be in place when it does;
-# see cheatfile.py for why its codes are carried rather than read.
-SUPPORTED = {
-    "gb":  "Nintendo - Game Boy",
-    "gbc": "Nintendo - Game Boy Color",
-    "gba": "Nintendo - Game Boy Advance",
+# Pocket platform id -> the libretro cheat database directory for it, and the
+# ROM extension that goes with it. Everything the app knows how to handle is
+# here whether or not it is switched on; ENABLED below decides what it offers.
+KNOWN = {
+    "gb":  ("Nintendo - Game Boy", ".gb"),
+    "gbc": ("Nintendo - Game Boy Color", ".gbc"),
+    "gba": ("Nintendo - Game Boy Advance", ".gba"),
+    "pce": ("NEC - PC Engine - TurboGrafx 16", ".pce"),
 }
-ROM_EXT = {".gb", ".gbc", ".gba"}
+
+# The systems the app actually offers, in the order they are listed.
+#
+# **Game Boy Advance is off.** Its core has no cheat data slot at all, so a
+# file written beside a GBA ROM is ignored by the hardware, and a card with a
+# GBA folder was being shown a system, a game list and a set of checkboxes that
+# could not do anything. Everything for it is still here, including the opaque
+# code carrying in cheatfile.py; put "gba" back in this tuple when a core
+# defines a cheat format.
+#
+# **PC Engine is on.** Its core is being built rather than released, so nothing
+# reads the files yet either, but the difference is that its codes are readable
+# today and files prepared now will be right: see pce.py.
+#
+# `.sgx` is deliberately not in KNOWN. The PC Engine core drops SuperGrafx to
+# buy the room its cheat engine needs, so a SuperGrafx ROM will not run
+# correctly on it and offering to write cheats for one would be a lie. For the
+# same reason the libretro SuperGrafx and PC Engine CD directories are not
+# mapped: this core runs neither.
+ENABLED = ("gb", "gbc", "pce")
+
+SUPPORTED = {p: KNOWN[p][0] for p in ENABLED}
+ROM_EXT = {KNOWN[p][1] for p in ENABLED}
 
 # What to call each system before the card has been asked. The card carries
 # its own names in /Platforms/<id>.json, and reading those three small files
@@ -36,6 +55,7 @@ DISPLAY = {
     "gb":  "Game Boy",
     "gbc": "Game Boy Color",
     "gba": "Game Boy Advance",
+    "pce": "PC Engine",
 }
 
 # Folders skipped when listing games. Romhacks are usually pre-patched variants

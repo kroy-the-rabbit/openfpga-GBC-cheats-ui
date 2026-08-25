@@ -103,9 +103,10 @@ class CartPaneTest(unittest.TestCase):
         # Same reason: the app also asks the core's release page what is
         # current on the way up.
         import core
-        self._latest = core.latest
-        core.latest = lambda timeout=None: {
-            "tag": "v0.0.0", "version": "0.0.0", "page": "", "assets": {}}
+        self._latest = core.all_latest
+        core.all_latest = lambda timeout=None: {
+            r: {"repo": r, "tag": "v0.0.0", "version": "0.0.0", "page": "",
+                "assets": {}} for r in core.repos()}
         self.core = core
         for c in carts.all():
             carts.remove(c.name)
@@ -131,7 +132,7 @@ class CartPaneTest(unittest.TestCase):
         for name, fn in self._boxes.items():
             setattr(messagebox, name, fn)
         self.db.remote_state = self._remote_state
-        self.core.latest = self._latest
+        self.core.all_latest = self._latest
         # Let the version check finish before the interpreter tears Tk down.
         # Destroying the root while a worker thread is still live is what
         # Tcl_AsyncDelete complains about, and it aborts the whole run.
