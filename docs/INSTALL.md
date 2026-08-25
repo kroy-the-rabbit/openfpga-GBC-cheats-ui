@@ -88,6 +88,13 @@ Authenticode certificate. "More info" then "Run anyway". Verify the GPG
 signature above if you want an actual assurance about where the file came from,
 which is more than a code signing certificate would tell you anyway.
 
+If it will not start, or you want to know which cheat database it is using,
+run `pocket-cheats.exe --check-db` from cmd: the exe has no console of its own
+but attaches to the one that launched it. Double clicked, it shows the same
+report in a box. Either way it is also written to
+`%USERPROFILE%\.local\share\pocket-cheats\libretro\pocket-cheats.log`,
+along with the stack of any hard crash.
+
 **Eject** uses the same shell command Explorer's own eject does. This is the
 one part Wine cannot stand in for, so it is the least proven thing in the
 Windows build. If it fails it says so and leaves the card mounted.

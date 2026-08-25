@@ -10,13 +10,15 @@ so the answer has to come off the machine where it happens.
     POCKET_CHEATS_TIMING=1 pocket-cheats
 
 Lines go to stderr, one per stage, longest offenders being the point.
+A windowed build has no stderr, so they go through say and end up in its log.
 """
 from __future__ import annotations
 
 import os
-import sys
 import time
 from contextlib import contextmanager
+
+import say
 
 ON = bool(os.environ.get("POCKET_CHEATS_TIMING"))
 
@@ -35,9 +37,9 @@ def stage(name: str, detail: str = ""):
         line = f"[timing] {ms:8.1f} ms  {name}"
         if detail:
             line += f"  ({detail})"
-        print(line, file=sys.stderr, flush=True)
+        say.err(line)
 
 
 def note(message: str) -> None:
     if ON:
-        print(f"[timing] {'':>8}     {message}", file=sys.stderr, flush=True)
+        say.err(f"[timing] {'':>8}     {message}")

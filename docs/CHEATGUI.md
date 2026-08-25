@@ -328,6 +328,48 @@ already in the list and match nothing in the cheat database, so they only add
 duplicates. Nothing is hidden from the card, only from this tool; change
 `SKIP_DIRS` in `card.py` to list them again.
 
+## Where its output goes
+
+The Linux build is a console program: `--list`, `--check-db` and the timing
+lines print wherever you ran it. The Windows and macOS builds are windowed, and
+a windowed process has no console, so Python hands it a `sys.stdout` and a
+`sys.stderr` of `None`. Writing to that raises rather than being quietly
+dropped, and for several releases it did: `faulthandler.enable()`, there to
+print a stack when the window stops repainting, checked stderr at startup,
+found `None`, and killed the Windows binary before its window ever opened.
+
+So nothing prints directly any more. Every line outside the GUI goes through
+`say.py`, which writes to the first of these that exists:
+
+- the interpreter's own stream, which is a checkout or the Linux build, and is
+  the ordinary case;
+- the console the exe was launched from. Windows does not hand a windowed
+  process its parent's console, so the app asks for it, and
+  `pocket-cheats.exe --list` from cmd prints into that cmd;
+- a log file beside the database the app fetched,
+  `~/.local/share/pocket-cheats/libretro/pocket-cheats.log`, so a crash dump
+  from a double clicked build can still be read afterwards. It starts over once
+  it passes half a megabyte;
+- nowhere, quietly, which is all a missing debug line should ever cost.
+
+That last one is why `--check-db` gets special treatment. It exists to be read
+back to somebody in a bug report, so when there is nowhere to print it -- a
+windowed build, double clicked rather than launched from a terminal -- it puts
+the same report in a message box:
+
+```
+version:  1.4.0 (packaged)
+database: C:\Users\you\.local\share\pocket-cheats\libretro\cht
+local:    2456 files, 2026-08-01
+ca store: ...\certifi\cacert.pem (bundled)
+upstream: 8f2c1ab9de 2026-08-01
+verdict:  upstream reachable and verified
+```
+
+The CA store line is there because a packaged build carries its own trust store
+rather than the machine's, and a failure to reach upstream is otherwise
+impossible to tell apart from a failure to verify it.
+
 ## Safety
 
 **Cheats can corrupt save files, and this app cannot tell you when one will.**
