@@ -1,7 +1,7 @@
 # Pocket cheat picker — moved
 
 > **This repository is retired. The project now lives at
-> [kroy-the-rabbit/pocket-cheats-sync](https://github.com/kroy-the-rabbit/pocket-cheats-sync).**
+> [kroy-the-rabbit/pocket-tools](https://github.com/kroy-the-rabbit/pocket-tools).**
 >
 > Everything moved: the full history, every tag from v0.1.0 to v0.8.0, and all
 > development from here on. Nothing further will be released from this
@@ -9,13 +9,18 @@
 >
 > The name is why. This started as a picker for the two Game Boy cores and the
 > name said so; it now covers Game Boy, Game Boy Color, Game Boy Advance and
-> PC Engine, and the old name told a new reader the wrong thing before they
-> opened it.
+> PC Engine, and it is no longer meant to be the only program in its repository.
+> pocket-tools is where the pocket-* programs live.
+>
+> The program itself is still called pocket-cheats. Its executable, its macOS
+> bundle identifier, its release assets and `~/.local/share/pocket-cheats` are
+> all unchanged, so an existing install keeps its database, its preferences and
+> its cartridge list. Only the repository was renamed.
 >
 > Update a clone with:
 >
 > ```
-> git remote set-url origin https://github.com/kroy-the-rabbit/pocket-cheats-sync
+> git remote set-url origin https://github.com/kroy-the-rabbit/pocket-tools
 > ```
 
 The rest of this file is kept as it stood at v0.8.0, so links into it still
@@ -129,7 +134,7 @@ correctly by a copy of the app that predates it.
 ## Get the picker
 
 Download a build from the
-[releases page](https://github.com/kroy-the-rabbit/pocket-cheats-sync/releases),
+[releases page](https://github.com/kroy-the-rabbit/pocket-tools/releases),
 or run it from a checkout:
 
 ```sh
