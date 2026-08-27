@@ -25,12 +25,14 @@ KNOWN = {
 
 # The systems the app actually offers, in the order they are listed.
 #
-# **Game Boy Advance is off.** Its core has no cheat data slot at all, so a
-# file written beside a GBA ROM is ignored by the hardware, and a card with a
-# GBA folder was being shown a system, a game list and a set of checkboxes that
-# could not do anything. Everything for it is still here, including the opaque
-# code carrying in cheatfile.py; put "gba" back in this tuple when a core
-# defines a cheat format.
+# **Game Boy Advance is back on.** It was switched off because its core had no
+# cheat data slot and its codes could not be decoded, so it offered a system, a
+# game list and a set of checkboxes that could do nothing in either direction.
+# Both halves of that have since stopped being true: the core defines slot 7,
+# and gbacht decodes CodeBreaker and GameShark against the whole libretro
+# directory. What it does not do is read text on the handheld, so this is the
+# one system where what lands on the card is not the file that was picked from.
+# See gba.py, and writer.py for the two files.
 #
 # **PC Engine is on.** Its core is being built rather than released, so nothing
 # reads the files yet either, but the difference is that its codes are readable
@@ -41,7 +43,7 @@ KNOWN = {
 # correctly on it and offering to write cheats for one would be a lie. For the
 # same reason the libretro SuperGrafx and PC Engine CD directories are not
 # mapped: this core runs neither.
-ENABLED = ("gb", "gbc", "pce")
+ENABLED = ("gb", "gbc", "gba", "pce")
 
 SUPPORTED = {p: KNOWN[p][0] for p in ENABLED}
 ROM_EXT = {KNOWN[p][1] for p in ENABLED}

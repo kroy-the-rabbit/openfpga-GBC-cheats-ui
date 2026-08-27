@@ -1,7 +1,8 @@
 # Pocket cheat picker
 
 A small desktop app for choosing which cheats go on an Analogue Pocket SD card,
-for the Game Boy, Game Boy Color and PC Engine / TurboGrafx-16 cores.
+for the Game Boy, Game Boy Color, Game Boy Advance and PC Engine /
+TurboGrafx-16 cores.
 
 > **Use at your own risk. Cheats can corrupt save files.**
 >
@@ -15,8 +16,10 @@ for the Game Boy, Game Boy Color and PC Engine / TurboGrafx-16 cores.
 > Back your saves up before using cheats on anything you care about, and read
 > [Cartridges](#cartridges-read-this-part) before using them on one.
 >
-> **PC Engine support is ahead of its core.** See
-> [PC Engine](#pc-engine--turbografx-16-is-ahead-of-its-core).
+> **PC Engine and Game Boy Advance are ahead of their cores.** Neither is
+> released, so files you prepare for them sit on the card until one is. See
+> [PC Engine](#pc-engine--turbografx-16-is-ahead-of-its-core) and
+> [Game Boy Advance](#game-boy-advance-writes-two-files).
 
 Three panes: the systems on the card, the games in each, and the cheats for the
 selected game. Tick what you want and press **Send to Pocket**. The file next to
@@ -38,11 +41,13 @@ has any effect:
 | Core | Covers | Status |
 |---|---|---|
 | [openfpga-GBC-cheats](https://github.com/kroy-the-rabbit/openfpga-GBC-cheats) | Game Boy, Game Boy Color | released, [download](https://github.com/kroy-the-rabbit/openfpga-GBC-cheats/releases) |
+| [openfpga-GBA-cheats](https://github.com/kroy-the-rabbit/openfpga-GBA-cheats) | Game Boy Advance | built, not released, see [below](#game-boy-advance-writes-two-files) |
 | openfpga-PCE-cheats | PC Engine, TurboGrafx-16 | being built, see [below](#pc-engine--turbografx-16-is-ahead-of-its-core) |
 
-Both are forks that add a cheat engine to somebody else's core, and both keep
-their own install notes. Only the first one is released, and the app can put it
-on the card for you.
+All three are forks that add a cheat engine to somebody else's core, and each
+keeps its own install notes. Only the first is released, and the app can put it
+on the card for you; the others are listed so that a hand-built copy already on
+a card is reported with its version.
 
 ### Installing it from here
 
@@ -294,17 +299,51 @@ Three things are deliberately absent, and none of them is an oversight:
 * **PC Engine CD.** Not supported by the core this one forks, and not planned.
 * **Cartridges.** SD card only; see above.
 
-**Game Boy Advance is switched off.** It used to be listed so files could be
-prepared in advance, but its
-[core](https://github.com/mincer-ray/openfpga-GBA) has no cheat data slot at
-all and its codes cannot be decoded either, so the app was offering a system, a
-game list and a set of checkboxes that could do nothing in either direction.
-The support is still in the source behind one switch and comes back when a core
-defines a cheat format.
-
 [docs/CHEATGUI.md](docs/CHEATGUI.md) has the detail, including the two code
 shapes and why running either through the Game Boy parser produces confident
 nonsense.
+
+---
+
+# Game Boy Advance writes two files
+
+Game Boy Advance was switched off for a while, because its core had no cheat
+data slot and its codes could not be decoded, so the app was offering a system,
+a game list and a set of checkboxes that could do nothing in either direction.
+Both halves of that have stopped being true and it is back on.
+
+It is the one system where **the file you pick from is not the file the
+handheld reads**, and that is worth understanding before you look in the folder
+and think something went wrong.
+
+* **Two files land beside the ROM.** `Game.gba.cht`, which holds the cheats you
+  ticked and their descriptions, and `Game.gba.chtbin`, which is those same
+  cheats packed into the 128-bit entries the core loads. The `.cht` is the one
+  this app reads back, so it is what makes your ticks come back next time. The
+  `.chtbin` is the one the hardware reads. Deleting either by hand will confuse
+  one of the two; use the app, or delete both.
+* **Why not just the `.cht`.** The core cannot parse text. Its cheat engine
+  went into a design that was already at 90 % logic utilisation, and an ASCII
+  parser on the FPGA cost more setup timing than the design had left, so the
+  parse moved here. That is also why the conversion is worth trusting: it is
+  tested on a desktop against all 513 files in the libretro directory rather
+  than inferred from a handheld with no console.
+* **Codes are read, not carried.** CodeBreaker and GameShark v1/v2, decoded.
+  What cannot be decoded is dropped rather than guessed at, and the row stays
+  in the list, greyed, with its description.
+* **Encrypted codes do not work, and cannot be made to.** GameShark v3, Action
+  Replay v3 and CodeBreaker codes after a `9` line are enciphered with a
+  per-game seed, and they are shaped exactly like ordinary ones. They are
+  rejected by plausibility: a real code's address lands in the machine's RAM,
+  an enciphered word almost never does. A few real codes will be refused this
+  way and a few enciphered ones will slip through as pokes at nothing.
+* **The store holds 32 entries**, and a conditional code spends two of them
+  because the engine expresses "if" as a compare entry followed by the entry it
+  guards. The meter counts entries for this system, which is why a cheat can
+  cost more than one.
+* **The core is not released.** Until it is, a file beside a `.gba` ROM sits
+  there and is ignored, exactly as on PC Engine.
+* **Cartridges.** Not supported by that core yet.
 
 ## What it shows
 

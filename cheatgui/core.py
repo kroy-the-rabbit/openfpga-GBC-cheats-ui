@@ -90,8 +90,8 @@ GBC_REPO = "kroy-the-rabbit/openfpga-GBC-cheats"
 #
 # The repository is per core rather than per app because it stopped being one
 # repository: openfpga-GBC-cheats releases both Game Boy cores together, and PC
-# Engine ships from a fork of a different core entirely. Game Boy Advance will
-# be a third.
+# Engine ships from a fork of a different core entirely, and Game Boy Advance
+# from a fork of mincer-ray/openfpga-GBA, which is a third.
 #
 # A core with `repo=None` has no release to install yet. It is still listed,
 # because a card may already carry a hand-built copy and reporting its version
@@ -107,6 +107,12 @@ CORES = (
     Core("kroy.GB", "gb", "Game Boy", "kroy.GB_", GBC_REPO,
          (Rom("gb_bios.bin", 256, "DMG BIOS"),
           Rom("sgb_boot.bin", 256, "SGB BIOS"))),
+    # Built, not released, so repo is None for the same reason the PC Engine's
+    # is: kroy-the-rabbit/openfpga-GBA-cheats exists but has nothing published
+    # at it, and an Install button that 404s is worse than one that does not
+    # appear. Set the repository when there is a release behind it.
+    Core("kroy.GBA", "gba", "Game Boy Advance", "kroy.GBA_", None,
+         (Rom("gba_bios.bin", 16384, "GBA BIOS"),)),
     # Upstream ships as "agg23.PC Engine", with a space in the directory name.
     # The fork renames to kroy.PCE, to match the others and so nothing here has
     # to handle the space. A card carrying the upstream core alongside is not

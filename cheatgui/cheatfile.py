@@ -6,8 +6,8 @@ What the codes inside it *mean* is not, and that is the whole of this module.
 
 Game Boy and Game Boy Color codes are decoded by `chtparse`, which is the
 reference model the core's RTL parser is verified against. Game Boy Advance
-codes are a different language: CodeBreaker and Action Replay, written as an
-eight digit address and a four digit value joined with `+`.
+codes are a different language: CodeBreaker and GameShark, written as an eight
+digit address and a four or eight digit value joined with `+`.
 
 Handing a GBA file to the Game Boy parser does not fail, which is the reason
 this module exists. `3300786D+00FF` is a CodeBreaker code; the Game Boy parser
@@ -16,15 +16,16 @@ sees eight hex digits, reads them as a GameShark code, and reports a write of
 Every code in the file comes out looking plausible and meaning nothing, and a
 file written back from that has lost half of itself.
 
-PC Engine is neither: its codes are readable, and `pce.py` reads them. What is
-different there is that there is only one kind of code, because every published
-PC Engine cheat is a RAM poke. See MECHANISMS.
+So each system has its own reader, and the choice of reader is the whole of
+this module. `gba.py` reads Game Boy Advance and `pce.py` reads PC Engine; what
+those two have in common, and do not share with Game Boy, is that there is only
+one kind of code, because neither machine has a Game Genie. See MECHANISMS.
 
-So a system whose codes we cannot decode is carried verbatim instead. The
-cheats are listed, picked and written back exactly as they came, and nothing
-is claimed about what any of them does. When the GBA core defines its cheat
-format, a decoder goes here and the display fills in; until then, refusing to
-guess is the only honest thing this can do.
+A system whose codes cannot be decoded is carried verbatim instead: listed,
+picked and written back exactly as it came, with nothing claimed about what any
+of it does. Nothing uses that path today. It is kept because refusing to guess
+is the right answer for the next system, and it is what Game Boy Advance was
+carried by until its core defined a format.
 """
 from __future__ import annotations
 
@@ -32,14 +33,18 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import chtparse
+import gba as gba_mod
 import pce as pce_mod
 
 # Systems whose codes can be read rather than merely carried. Game Boy and
 # Game Boy Color go through chtparse, which is the model the core's RTL parser
 # is verified against. PC Engine goes through pce.py: its codes are a single
 # unambiguous form of RAM poke, documented there, and every file in the
-# libretro directory decodes and writes back unchanged.
-DECODED = ("gb", "gbc", "pce")
+# libretro directory decodes and writes back unchanged. Game Boy Advance goes
+# through gba.py, which adapts `gbacht` - the same relationship chtparse has to
+# the Game Boy core, except that on this system the decoder is what produces
+# the file the hardware reads rather than a model of a parser inside it.
+DECODED = ("gb", "gbc", "gba", "pce")
 
 # How many ways a system's core can make a code take effect.
 #
@@ -52,15 +57,22 @@ DECODED = ("gb", "gbc", "pce")
 MECHANISMS = {
     "gb":  ("poke", "patch"),
     "gbc": ("poke", "patch"),
+    "gba": ("poke",),
     "pce": ("poke",),
 }
 
-# No limit is claimed for a system whose core does not exist yet. The Game Boy
-# figures come from cheatcodes.sv; inventing GBA ones would put a number on
-# screen that nothing checks.
+# What the core can hold. No limit is claimed for a system whose core has not
+# defined one; making a number up would put it on screen with nothing checking
+# it. The Game Boy figures come from cheatcodes.sv.
+#
+# Game Boy Advance counts entries, and gba.py hands out one code per entry so
+# that this stays a pair of plain numbers. Both are 32 because both are the
+# same 32: gba_cheats has one table, every cheat spends at least one slot of
+# it, and a conditional spends two.
 LIMITS = {
     "gb":  (chtparse.MAX_GROUPS, chtparse.MAX_CODES),
     "gbc": (chtparse.MAX_GROUPS, chtparse.MAX_CODES),
+    "gba": (gba_mod.MAX_ENTRIES, gba_mod.MAX_ENTRIES),
 }
 
 # Reading a file to choose from is not reading it to run. The core takes the
@@ -152,6 +164,8 @@ def parse_opaque(data: bytes, max_groups: int = NO_LIMIT) -> list:
 # ---------------------------------------------------------------- the reader --
 def parse(data: bytes, platform: str, max_groups: int = NO_LIMIT) -> list:
     """Cheat groups from a file, read the way this system's codes work."""
+    if platform == "gba":
+        return gba_mod.parse(data, max_groups=max_groups)
     if platform == "pce":
         return pce_mod.parse(data, max_groups=max_groups)
     if decoded(platform):
@@ -161,6 +175,8 @@ def parse(data: bytes, platform: str, max_groups: int = NO_LIMIT) -> list:
 
 def applied_by(code, platform: str) -> str:
     """How the core makes one code take effect, or "" when that is not known."""
+    if platform == "gba":
+        return gba_mod.applied_by(code)
     if platform == "pce":
         return pce_mod.applied_by(code)
     if not decoded(platform):

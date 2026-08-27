@@ -4,7 +4,8 @@
 The Game Boy Advance tests are the point of this file. GBA codes are a
 different language from Game Boy ones, and the Game Boy parser does not reject
 them, it misreads them: every code comes out looking plausible and meaning
-something else. These pin the fact that the two are kept apart.
+something else. These pin the fact that the two are kept apart, and now also
+that the right reader gets the right answer.
 """
 from __future__ import annotations
 
@@ -71,7 +72,16 @@ class GameBoyStillDecodes(unittest.TestCase):
         self.assertEqual(cheatfile.applied_by(groups[0].codes[0], "gbc"), "poke")
 
 
-class GameBoyAdvanceIsCarriedNotRead(unittest.TestCase):
+class GameBoyAdvanceIsReadNotGuessed(unittest.TestCase):
+    """GBA used to be carried verbatim because nothing could read its codes.
+
+    That changed at both ends: the core defines a cheat format, and `gbacht`
+    decodes CodeBreaker and GameShark against the whole libretro directory. The
+    reason this module exists did not change - the Game Boy parser still does
+    not *reject* a GBA file, it misreads it - so that half is still pinned here
+    and the other half now checks the answer instead of the refusal.
+    """
+
     def test_the_game_boy_parser_misreads_gba_codes(self):
         """Why this module exists. Not a rejection: a wrong answer.
 
@@ -86,18 +96,55 @@ class GameBoyAdvanceIsCarriedNotRead(unittest.TestCase):
         self.assertEqual(money.codes[0].address, 0x6D78)   # invented
         self.assertEqual(money.codes[0].value, 0x00)       # invented
 
-        # And what this module does instead.
+        # And what this module does instead: one code, both halves, and an
+        # address that is actually in it.
         right = cheatfile.parse(GBA_FILE, "gba")
         money = [g for g in right if g.desc == "Infinite Money"][0]
-        self.assertEqual([c.raw for c in money.codes], ["3300786D", "00FF"])
-        self.assertIsNone(money.codes[0].address)
-        self.assertIsNone(money.codes[0].value)
+        self.assertEqual([c.raw for c in money.codes], ["3300786D+00FF"])
+        self.assertEqual(money.codes[0].address, 0x300786C)
 
-    def test_nothing_is_claimed_about_a_gba_code(self):
-        self.assertFalse(cheatfile.decoded("gba"))
-        self.assertIsNone(cheatfile.limits("gba"))
+    def test_a_byte_code_is_placed_in_its_lane(self):
+        """The engine writes 32 bits at a time; a byte code picks a lane.
+
+        `3300786D` and `3300786F` are two bytes of the same word. Decoded, they
+        share an address and differ only in where the 0xFF sits, which is the
+        read-modify-write in gba_cheats seen from the outside.
+        """
+        by_desc = {g.desc: g for g in cheatfile.parse(GBA_FILE, "gba")}
+        money = by_desc["Infinite Money"].codes[0]
+        hearts = by_desc["Max Hearts"].codes[0]
+        self.assertEqual(money.address, hearts.address)
+        self.assertEqual(money.value, 0x0000FF00)      # byte 1 of the word
+        self.assertEqual(hearts.value, 0xFF000000)     # byte 3
+
+    def test_a_code_with_no_memory_effect_produces_nothing(self):
+        """"Enable Code (Must Be On)" is a game id and a hook.
+
+        CodeBreaker types 0 and 1 tell the cheat device which game it is
+        looking at and where to attach; neither writes memory. There is nothing
+        for the engine to do with them, and inventing a poke would invent a
+        cheat.
+        """
+        enable = [g for g in cheatfile.parse(GBA_FILE, "gba")
+                  if g.desc == "Enable Code (Must Be On)"][0]
+        self.assertEqual(enable.codes, [])
+
+    def test_an_unusable_cheat_is_still_listed(self):
+        """Shown and greyed, not silently missing.
+
+        The description is what a user recognises. A row that is present and
+        unpickable says "this cheat cannot be expressed"; a row that is absent
+        says nothing, and looks like the file was not read.
+        """
+        descs = [g.desc for g in cheatfile.parse(GBA_FILE, "gba")]
+        self.assertIn("Enable Code (Must Be On)", descs)
+
+    def test_the_code_is_read_and_the_limit_is_the_cores(self):
+        self.assertTrue(cheatfile.decoded("gba"))
+        self.assertEqual(cheatfile.limits("gba"), (32, 32))
         groups = cheatfile.parse(GBA_FILE, "gba")
-        self.assertEqual(cheatfile.applied_by(groups[0].codes[0], "gba"), "")
+        money = [g for g in groups if g.desc == "Infinite Money"][0]
+        self.assertEqual(cheatfile.applied_by(money.codes[0], "gba"), "poke")
 
     def test_descriptions_and_enable_flags_are_read(self):
         groups = cheatfile.parse(GBA_FILE, "gba")
@@ -106,30 +153,34 @@ class GameBoyAdvanceIsCarriedNotRead(unittest.TestCase):
                           "Max Hearts"])
         self.assertEqual([g.enabled for g in groups], [False, True, False])
 
-    def test_a_multi_part_code_keeps_every_part(self):
-        groups = cheatfile.parse(GBA_FILE, "gba")
-        self.assertEqual([c.raw for c in groups[0].codes],
-                         ["00004E72", "000A", "100010E4", "0007"])
+    def test_a_gba_file_written_back_is_the_same_cheats(self):
+        """Round trip, plus the second file the core actually reads.
 
-    def test_a_gba_file_written_back_is_the_same_file(self):
-        """The whole point of carrying them: nothing is lost in the round trip."""
-        groups = cheatfile.parse(GBA_FILE, "gba")
+        Not the same *file*: the codes come back in gbacht's canonical spelling
+        rather than the library's, because the library's cannot be recovered.
+        What has to survive is which cheats they are.
+        """
+        groups = [g for g in cheatfile.parse(GBA_FILE, "gba") if g.codes]
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "game.gba.cht")
             cheats, codes, removed = writer.write(path, groups, "gba")
             self.assertFalse(removed)
-            self.assertEqual(cheats, 3)
+            self.assertEqual(cheats, len(groups))
             self.assertEqual(codes, sum(len(g.codes) for g in groups))
             back = writer.load_library(path, "gba")
-            self.assertEqual(["+".join(c.raw for c in g.codes) for g in back],
-                             ["+".join(c.raw for c in g.codes) for g in groups])
+            self.assertEqual([writer.key_of(g) for g in back],
+                             [writer.key_of(g) for g in groups])
             self.assertEqual([g.desc for g in back], [g.desc for g in groups])
             # Everything written is written enabled: the file is the selection.
             self.assertTrue(all(g.enabled for g in back))
+            # And the core does not read that file, so it must exist too.
+            self.assertTrue(os.path.exists(
+                writer.compiled_path(path, "gba")))
 
-    def test_no_limit_is_invented_for_a_core_that_does_not_exist(self):
-        groups = cheatfile.parse(GBA_FILE, "gba")
-        self.assertEqual(writer.check(groups * 50, "gba"), [])
+    def test_the_core_limit_is_enforced_now_that_there_is_one(self):
+        groups = [g for g in cheatfile.parse(GBA_FILE, "gba") if g.codes]
+        self.assertEqual(writer.check(groups, "gba"), [])
+        self.assertTrue(writer.check(groups * 50, "gba"))
         # while the Game Boy core's limits are still enforced
         gb = cheatfile.parse(GB_FILE, "gbc")
         self.assertTrue(writer.check(gb * 40, "gbc"))

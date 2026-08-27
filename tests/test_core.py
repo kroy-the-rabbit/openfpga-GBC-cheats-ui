@@ -25,9 +25,21 @@ sys.path.insert(1, os.path.join(ROOT, "cheats"))
 
 import core                                                  # noqa: E402
 
-GBC = core.CORES[0]
-GB = core.CORES[1]
-PCE = core.CORES[2]
+# By id, not by position. These were indexes into CORES until adding Game Boy
+# Advance in the middle silently turned PCE into it and failed thirteen tests
+# that had nothing to do with the change.
+BY_ID = {c.id: c for c in core.CORES}
+GBC = BY_ID["kroy.GBC"]
+GB = BY_ID["kroy.GB"]
+GBA = BY_ID["kroy.GBA"]
+PCE = BY_ID["kroy.PCE"]
+
+# Every core that has somewhere to be installed from, in listed order. Derived
+# rather than written out for the same reason as BY_ID: these assertions are
+# about "the cores with a release", and spelling that as a literal list makes
+# adding one fail tests that were not about it.
+RELEASED = tuple(c for c in core.CORES if c.repo)
+RELEASED_IDS = [c.id for c in RELEASED]
 
 
 def releases(version: str, repos=None, assets=True) -> dict:
@@ -194,7 +206,7 @@ class Versions(unittest.TestCase):
     def test_an_absent_core_is_outdated(self) -> None:
         rels = releases("1.4.0-cheats.9")
         self.assertEqual([c.id for c in core.outdated(every(None), rels)],
-                         [GBC.id, GB.id])
+                         RELEASED_IDS)
 
     def test_no_core_at_all_says_so_loudly(self) -> None:
         sv = core.Survey("/card", every(None), [])
@@ -208,29 +220,38 @@ class Versions(unittest.TestCase):
         self.assertEqual([c.id for c in core.outdated(have, rels)], [GBC.id])
 
     def test_a_release_with_no_zip_for_a_core_cannot_update_it(self) -> None:
+        # GB and GBC share a repository, so removing one core's zip from that
+        # release must leave the other still updatable and this one not.
         rels = releases("2.0")
         del rels[GB.repo]["assets"][f"{GB.asset}2.0.zip"]
-        self.assertEqual([c.id for c in core.outdated(every(None), rels)],
-                         [GBC.id])
+        got = [c.id for c in core.outdated(every(None), rels)]
+        self.assertNotIn(GB.id, got)
+        self.assertIn(GBC.id, got)
 
 
 class Unreleased(unittest.TestCase):
-    """A core whose repository does not exist yet.
+    """A core with nothing published to install.
 
-    PC Engine is in CORES so that a hand-built copy on a card is reported, and
-    it must never be offered for install: there is nothing to install, and an
-    Install button that 404s is worse than one that does not appear.
+    PC Engine and Game Boy Advance are both in CORES so that a hand-built copy
+    on a card is reported, and neither must ever be offered for install: there
+    is nothing to install, and an Install button that 404s is worse than one
+    that does not appear.
     """
 
     def test_it_has_no_repository(self) -> None:
         self.assertIsNone(PCE.repo)
+        self.assertIsNone(GBA.repo)
 
     def test_it_is_never_outdated(self) -> None:
-        self.assertNotIn(PCE, core.outdated(every(None), releases("2.0")))
+        stale = core.outdated(every(None), releases("2.0"))
+        self.assertNotIn(PCE, stale)
+        self.assertNotIn(GBA, stale)
 
     def test_it_contributes_no_repository_to_fetch(self) -> None:
         self.assertNotIn(None, core.repos())
-        self.assertEqual(core.repos(), (GBC.repo,))
+        self.assertEqual(core.repos(),
+                         tuple(dict.fromkeys(c.repo for c in RELEASED)))
+        self.assertNotIn(PCE.repo, core.repos())
 
     def test_its_platform_reads_as_unreleased(self) -> None:
         self.assertTrue(core.released("gbc"))

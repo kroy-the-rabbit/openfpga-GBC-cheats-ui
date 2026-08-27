@@ -162,15 +162,13 @@ directories searched for a match. A system listed there and fetched but never
 read would be wasted download; one read but never fetched would be permanently
 empty, so they come from the same place and cannot drift.
 
-**Game Boy Advance is switched off.** It used to be listed so files could be
-prepared in advance, but the
-[GBA core](https://github.com/mincer-ray/openfpga-GBA) has no cheat data slot
-at all, so nothing written beside a GBA ROM is ever read, and its codes cannot
-be decoded either. The result was a system, a game list and a set of checkboxes
-that could do nothing in either direction, plus 513 database files fetched for
-it. The support is still in the source, including the opaque code carrying
-described below; put `"gba"` back in `card.ENABLED` when a core defines a cheat
-format.
+**Game Boy Advance was switched off for a while.** The core it was written
+against had no cheat data slot at all, so nothing written beside a GBA ROM was
+ever read, and its codes could not be decoded either: a system, a game list and
+a set of checkboxes that could do nothing in either direction, plus 513
+database files fetched for it. Both halves have since stopped being true - the
+fork defines slot 7, and `gbacht` decodes CodeBreaker and GameShark - so it is
+back, with one property none of the others has: see below.
 
 ## PC Engine is the other way round from Game Boy
 
@@ -225,11 +223,53 @@ There is no code store meter for PC Engine, only a count. The core has not
 fixed a poker table size, and a number on screen that no hardware agrees with
 is worse than none.
 
+## Game Boy Advance is the one system we compile for
+
+Every other core reads the `.cht` off the card. The GBA core cannot: its cheat
+engine went into a design already at 90 % logic utilisation, and an ASCII
+parser on the FPGA measured 441 ALMs but grew the design by 1,285 and cost
+0.54 ns of setup timing, which is the difference between a core that runs and
+one that does not exist. So the parse happens here and the core reads packed
+128-bit entries.
+
+That inverts the usual relationship. Everywhere else this app *models* the
+core's parser and drift means the display is wrong; here it *is* the parser,
+and drift means the cheat is wrong. `cheats/README.md` says so where the copies
+live.
+
+Two files land beside the ROM, and `writer.py` is the only place that knows it:
+
+    Game.gba.cht      the cheats, their descriptions and their enable flags.
+                      The state file: it is what the app reads back to know
+                      what is ticked, and what everything else in the app
+                      already understands.
+    Game.gba.chtbin   the same cheats as a 16-byte header and one 16-byte
+                      entry each. What the hardware reads, and the only thing
+                      it reads - slot 7 accepts that extension and no other.
+
+The `.cht` beside it is therefore inert as far as the core is concerned, which
+is what makes keeping it safe. It is not the stray `.cht` the core's own docs
+warn about; that one is a file copied to the card *instead* of being converted,
+and the `.chtbin` header magic exists so that renaming one loads zero cheats
+rather than shifting ASCII into the cheat table.
+
+Ordering is the part worth being careful about, and `writer.write` does it
+deliberately: the compiled file is written last and removed first, so that the
+moment the hardware's behaviour changes is never ahead of the record of why.
+
+One more thing differs. A cheat's cost is not its code count. One code becomes
+one 128-bit entry, the table holds 32, and a conditional code spends two
+because `gba_cheats` expresses "if" as a compare entry immediately followed by
+the entry it guards. `gba.py` hands out one code per entry so the meter and the
+limit check stay honest with a single number, and nothing anywhere may sort or
+reorder them: adjacency is the conditional.
+
 ## Codes we cannot read are carried, not guessed
 
 This is what happens for a system with no decoder, which today is none of the
-ones listed and was Game Boy Advance until it was switched off. It is written
-down because it is the rule the next system arrives under.
+ones listed. It is written down because it is the rule the next system arrives
+under, and because Game Boy Advance was carried this way until its core defined
+a format.
 
 GBA cheats are a different language from Game Boy ones. A CodeBreaker code is
 an eight digit address and a four digit value joined with `+`, like
