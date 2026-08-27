@@ -1,4 +1,26 @@
-# Pocket cheat picker
+# Pocket cheat picker — moved
+
+> **This repository is retired. The project now lives at
+> [kroy-the-rabbit/pocket-cheats-sync](https://github.com/kroy-the-rabbit/pocket-cheats-sync).**
+>
+> Everything moved: the full history, every tag from v0.1.0 to v0.8.0, and all
+> development from here on. Nothing further will be released from this
+> repository, and the releases listed here stop at v0.8.0.
+>
+> The name is why. This started as a picker for the two Game Boy cores and the
+> name said so; it now covers Game Boy, Game Boy Color, Game Boy Advance and
+> PC Engine, and the old name told a new reader the wrong thing before they
+> opened it.
+>
+> Update a clone with:
+>
+> ```
+> git remote set-url origin https://github.com/kroy-the-rabbit/pocket-cheats-sync
+> ```
+
+The rest of this file is kept as it stood at v0.8.0, so links into it still
+resolve. It describes the project, but the code it points at is over there now.
+
 
 A small desktop app for choosing which cheats go on an Analogue Pocket SD card,
 for the Game Boy, Game Boy Color, Game Boy Advance and PC Engine /
