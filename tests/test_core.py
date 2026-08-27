@@ -16,6 +16,7 @@ import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -237,15 +238,26 @@ class Versions(unittest.TestCase):
 class Unreleased(unittest.TestCase):
     """A core with nothing published to install.
 
-    Two different shapes of it, and the difference is the point. The PC Engine
-    has no repository at all. Game Boy Advance has one, and CI that publishes on
-    a tag, and no tag yet. Neither must ever be offered for install - an Install
-    button that 404s is worse than one that does not appear - but only the
-    second starts working on its own.
+    Two shapes, and the difference is the point. A core may have a repository
+    with CI that publishes on a tag and no tag yet, or no repository at all.
+    Neither must ever be offered for install - an Install button that 404s is
+    worse than one that does not appear - but only the first starts working on
+    its own.
+
+    The PC Engine used to be the example of the second shape. Its fork is
+    published now, and every core in CORES has a repository, so the
+    no-repository path is covered with a registry built here rather than by
+    dropping the coverage: core.py still branches on it.
     """
 
-    def test_the_pc_engine_has_no_repository(self) -> None:
-        self.assertIsNone(PCE.repo)
+    NOREPO = core.Core("kroy.NONE", "none", "Nothing", "kroy.NONE_", None, ())
+
+    def test_a_core_with_no_repository_has_nowhere_to_install_from(self) -> None:
+        with unittest.mock.patch.object(core, "CORES", core.CORES + (self.NOREPO,)):
+            self.assertNotIn(None, core.repos())
+            self.assertNotIn(self.NOREPO.repo, core.repos())
+            self.assertFalse(core.released("none"))
+            self.assertFalse(core.released("none", releases("2.0")))
 
     def test_game_boy_advance_has_one_with_nothing_at_it(self) -> None:
         self.assertIsNotNone(GBA.repo)
@@ -258,15 +270,16 @@ class Unreleased(unittest.TestCase):
         empty = releases("2.0", repos=[])
         self.assertEqual(core.outdated(every(None), empty), [])
 
-    def test_it_contributes_no_repository_to_fetch(self) -> None:
+    def test_repos_lists_each_one_once_and_never_a_missing_one(self) -> None:
         self.assertNotIn(None, core.repos())
         self.assertEqual(core.repos(),
                          tuple(dict.fromkeys(c.repo for c in RELEASED)))
-        self.assertNotIn(PCE.repo, core.repos())
 
-    def test_its_platform_reads_as_unreleased(self) -> None:
+    def test_a_platform_absent_from_the_map_reads_as_unreleased(self) -> None:
         # Asked with the release map, which is the answer that matters: it is
         # what decides whether the app tells you nothing will read your file.
+        # The PC Engine has a repository now, so this is about the map, not
+        # about whether a repository is named.
         rels = releases("2.0", repos=[GBC.repo])
         self.assertTrue(core.released("gbc", rels))
         self.assertTrue(core.released("gb", rels))
@@ -274,10 +287,9 @@ class Unreleased(unittest.TestCase):
         self.assertFalse(core.released("gba", rels))
 
     def test_without_the_map_it_falls_back_to_having_a_repository(self) -> None:
-        # Before the release check answers there is nothing better to say, and
-        # a core with no repository at all is still definitely unreleased.
+        # Before the release check answers there is nothing better to say.
         self.assertTrue(core.released("gbc"))
-        self.assertFalse(core.released("pce"))
+        self.assertTrue(core.released("pce"))
 
     def test_an_installed_copy_is_still_reported(self) -> None:
         with tempfile.TemporaryDirectory() as root:
@@ -286,11 +298,6 @@ class Unreleased(unittest.TestCase):
             self.assertEqual(sv.versions[PCE.id], "0.1-local")
             self.assertIn(f"{PCE.id} 0.1-local",
                           core.describe(sv, releases("2.0"))[0])
-
-    def test_a_card_with_only_it_is_still_up_to_date_about_the_rest(self) -> None:
-        # Its absence from the release map must not read as "out of date".
-        have = at("2.0") | {PCE.id: None}
-        self.assertEqual(core.outdated(have, releases("2.0")), [])
 
 
 class NoBios(Env):

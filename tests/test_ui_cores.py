@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+import unittest.mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -170,10 +171,25 @@ class Dialog(unittest.TestCase):
         # Every core is absent, so every row says so rather than saying nothing.
         cards = [dlg.tree.set(cid, "card") for cid in dlg.rows]
         self.assertEqual(cards, ["not installed"] * len(core_mod.CORES))
-        # And the two that cannot be installed say which kind of nothing it is.
+        # And the ones with nothing to install say so. Every core has a
+        # repository now, so they all reach the same branch; "not released
+        # yet", the no-repository wording, is covered below with a registry
+        # built for it rather than by leaving a core without one.
         cells = [dlg.tree.set(cid, "avail") for cid in dlg.rows]
-        self.assertIn("no release yet", cells)             # repo, no tag
-        self.assertIn("not released yet", cells)           # no repo at all
+        self.assertIn("no release yet", cells)             # repo, not in map
+        self.assertNotIn("not released yet", cells)
+
+    def test_a_core_with_no_repository_says_a_different_kind_of_nothing(self):
+        # "no release yet" starts working on its own when a tag lands. "not
+        # released yet" does not, and the dialog says which is which.
+        norepo = core_mod.Core("kroy.NONE", "none", "Nothing", "kroy.NONE_",
+                               None, ())
+        with unittest.mock.patch.object(core_mod, "CORES",
+                                        core_mod.CORES + (norepo,)):
+            dlg = self.build({c.id: None for c in core_mod.CORES},
+                             releases("2.0", [core_mod.GBC_REPO]))
+            cells = [dlg.tree.set(cid, "avail") for cid in dlg.rows]
+            self.assertIn("not released yet", cells)
 
 
 if __name__ == "__main__":

@@ -86,6 +86,7 @@ class Core:
 
 GBC_REPO = "kroy-the-rabbit/openfpga-GBC-cheats"
 GBA_REPO = "kroy-the-rabbit/openfpga-GBA-cheats"
+PCE_REPO = "kroy-the-rabbit/openfpga-pcengine-cheats"
 
 # The cores this app writes cheat files for.
 #
@@ -119,7 +120,11 @@ CORES = (
     # The fork renames to kroy.PCE, to match the others and so nothing here has
     # to handle the space. A card carrying the upstream core alongside is not
     # seen, which is right: it is a different core and reads no cheat files.
-    Core("kroy.PCE", "pce", "PC Engine", "kroy.PCE_", None, ()),
+    #
+    # The fork's v0.2.0 shipped as "kroy.PC Engine" and so matched nothing here
+    # and reported as unreleased; v0.2.1 renames it. Its manifest check now
+    # fails on a directory name with a space, so that cannot recur silently.
+    Core("kroy.PCE", "pce", "PC Engine", "kroy.PCE_", PCE_REPO, ()),
 )
 
 
@@ -143,8 +148,12 @@ def released(platform: str, rels: dict[str, dict] | None = None) -> bool:
     act on the file I just wrote", so a repository with nothing published at it
     counts as no. Game Boy Advance is exactly that case: its repo exists and its
     CI publishes on a tag, and until one is pushed there is no core to install.
-    The PC Engine has no repository at all yet. Both answer False, and both
-    start answering True on their own.
+    It answers False, and starts answering True on its own.
+
+    A core may also have no repository at all, which answers False the same way
+    but never changes by itself. Every core listed here has one now - the PC
+    Engine was the last without - so that branch is reached only if one is
+    added, which is why the tests build a registry to cover it.
 
     Without `rels` this can only fall back to whether a repository is named,
     which is the best guess available before the release check has answered.
