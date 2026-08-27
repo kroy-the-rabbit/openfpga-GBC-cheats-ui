@@ -11,8 +11,8 @@ Two things are checked, and they fail in different ways:
 
   the core     out of date or absent. Fetched from the release page, verified
                to look like a Pocket core, and unpacked onto the card.
-  the boot ROM absent. Named, sized, and located, and that is all. These are
-               Nintendo's copyrighted code; this app does not carry them, will
+  the boot ROM absent. Named, sized, and located, and that is all. They are
+               copyrighted console code; this app does not carry them, will
                not fetch them, and says where yours has to go.
 
 The release zips are not signed, so what is checked is what can be: the
@@ -64,9 +64,9 @@ class Cancelled(Exception):
 class Rom:
     """A file the core needs and this app must not supply.
 
-    Boot ROMs are Nintendo's. The core declares which ones it wants and how
-    big each has to be; the most this app will ever do is tell you that yours
-    is not there.
+    A boot ROM is copyrighted console code. The core declares which ones it
+    wants and how big each has to be; the most this app will ever do is tell
+    you that yours is not there.
     """
     filename: str
     size: int
@@ -403,7 +403,7 @@ def describe_roms(sv: Survey | None) -> tuple[str, bool]:
 def rom_advice(sv: Survey) -> str:
     """The whole story for the dialog: what, how big, and where it goes."""
     lines = ["A boot ROM is the code the console runs before the game does.",
-             "It is Nintendo's, so it is not in the core and it is not in "
+             "It is copyrighted, so it is not in the core and it is not in "
              "this app. Dump it from your own hardware or supply your own "
              "copy.", ""]
     for r in sv.roms:

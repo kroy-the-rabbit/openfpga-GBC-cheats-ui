@@ -82,12 +82,32 @@ class Dialog(unittest.TestCase):
         return dlg
 
     def rows(self, dlg):
-        return {c.id: (var.get(), asset) for c, var, asset in dlg.picks}
+        return {cid: (on, asset) for cid, (c, on, asset) in dlg.rows.items()}
 
     def test_every_core_gets_a_row(self):
         dlg = self.build({c.id: None for c in core_mod.CORES}, None)
-        self.assertEqual([c.id for c, _v, _a in dlg.picks],
+        self.assertEqual(list(dlg.rows), [c.id for c in core_mod.CORES])
+        self.assertEqual(list(dlg.tree.get_children()),
                          [c.id for c in core_mod.CORES])
+
+    def test_clicking_a_row_toggles_it_and_the_tick_follows(self):
+        rels = releases("2.0", [core_mod.GBC_REPO])
+        dlg = self.build({c.id: None for c in core_mod.CORES}, rels)
+        was = dlg.rows["kroy.GBC"][1]
+        dlg.toggle_row("kroy.GBC")
+        self.assertNotEqual(dlg.rows["kroy.GBC"][1], was)
+        self.assertIn(ui.UNTICK if was else ui.TICK,
+                      dlg.tree.item("kroy.GBC", "text"))
+        dlg.toggle_row("kroy.GBC")
+        self.assertEqual(dlg.rows["kroy.GBC"][1], was)
+
+    def test_clicking_a_row_with_nothing_to_install_says_why(self):
+        # Silence would read as a broken checkbox. It has a reason; it says it.
+        rels = releases("2.0", [core_mod.GBC_REPO])
+        dlg = self.build({c.id: None for c in core_mod.CORES}, rels)
+        dlg.toggle_row("kroy.GBA")
+        self.assertFalse(dlg.rows["kroy.GBA"][1])
+        self.assertIn("nothing to install", dlg.note.cget("text"))
 
     def test_a_core_behind_its_release_is_ticked(self):
         rels = releases("2.0", [core_mod.GBC_REPO])
@@ -119,6 +139,8 @@ class Dialog(unittest.TestCase):
         self.assertTrue(all(not v for v, _a in self.rows(dlg).values()))
         dlg.ok()
         self.assertIsNone(dlg.result)
+        # And Install is not merely inert, it is visibly unavailable.
+        self.assertIn("disabled", dlg.go.state())
 
     def test_it_returns_what_was_ticked_not_what_was_behind(self):
         # The whole reason this is a dialog. GB is current and GBC is behind;
@@ -127,16 +149,16 @@ class Dialog(unittest.TestCase):
         versions = {c.id: None for c in core_mod.CORES}
         versions["kroy.GB"] = "2.0"
         dlg = self.build(versions, rels)
-        for c, var, _a in dlg.picks:
-            var.set(c.id == "kroy.GB")
+        for cid, row in dlg.rows.items():
+            row[1] = (cid == "kroy.GB")
         dlg.ok()
         self.assertEqual([c.id for c in dlg.result], ["kroy.GB"])
 
     def test_ticking_nothing_does_not_close_with_an_empty_install(self):
         rels = releases("2.0", [core_mod.GBC_REPO])
         dlg = self.build({c.id: None for c in core_mod.CORES}, rels)
-        for _c, var, _a in dlg.picks:
-            var.set(False)
+        for row in dlg.rows.values():
+            row[1] = False
         dlg.ok()
         self.assertIsNone(dlg.result)
 
@@ -146,10 +168,12 @@ class Dialog(unittest.TestCase):
         shown = labels(dlg)
         self.assertTrue(any("/card" in t for t in shown), shown)
         # Every core is absent, so every row says so rather than saying nothing.
-        self.assertEqual(shown.count("not installed"), len(core_mod.CORES))
+        cards = [dlg.tree.set(cid, "card") for cid in dlg.rows]
+        self.assertEqual(cards, ["not installed"] * len(core_mod.CORES))
         # And the two that cannot be installed say which kind of nothing it is.
-        self.assertIn("no release published yet", shown)   # repo, no tag
-        self.assertIn("not released yet", shown)           # no repo at all
+        cells = [dlg.tree.set(cid, "avail") for cid in dlg.rows]
+        self.assertIn("no release yet", cells)             # repo, no tag
+        self.assertIn("not released yet", cells)           # no repo at all
 
 
 if __name__ == "__main__":

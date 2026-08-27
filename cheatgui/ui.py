@@ -1316,16 +1316,13 @@ class CoresDialog(tk.Toplevel):
     and one of them has no release at all - so "install the core" stopped being
     one question with one answer.
 
-    A row per core, and the row says the two things that decide what to do: the
-    version on the card, and the version available. A core with nothing to
-    install cannot be ticked and says why, which is the case the old button
-    could only express by being disabled for reasons it did not explain.
+    A row per core, ticked the same way cheats are ticked in the main window
+    and for the same reason: this is a list of things to pick, and the app
+    already has a way of showing one. A row that cannot be picked is greyed and
+    says why, which is the case the old button could only express by going grey
+    itself without explaining.
     """
 
-    # Selected by default, because it is what the button used to do and what
-    # anyone opening this almost always wants. Never a core that is already at
-    # the released version: reinstalling one is a repair, not a routine, so it
-    # is offered and not assumed.
     def __init__(self, app, survey, rels: dict | None) -> None:
         super().__init__(app)
         self.result: list | None = None
@@ -1334,85 +1331,139 @@ class CoresDialog(tk.Toplevel):
         self.resizable(False, False)
         self.columnconfigure(0, weight=1)
 
-        body = ttk.Frame(self, padding=10)
+        body = ttk.Frame(self, padding=12)
         body.grid(row=0, column=0, sticky="nsew")
         body.columnconfigure(0, weight=1)
 
-        where = survey.root if survey else "no card"
-        ttk.Label(body, text=f"Card: {where}").grid(row=0, column=0, sticky="w")
+        ttk.Label(body, text="Cores on this card").grid(
+            row=0, column=0, sticky="w")
+        ttk.Label(body, foreground="#666",
+                  text=survey.root if survey else "no card").grid(
+            row=1, column=0, sticky="w", pady=(1, 8))
 
-        table = ttk.Frame(body)
-        table.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        for i, heading in enumerate(("", "Core", "On the card", "Available")):
-            ttk.Label(table, text=heading, foreground="#666").grid(
-                row=0, column=i, sticky="w", padx=(0, 14))
+        cols = ("card", "avail")
+        self.tree = ttk.Treeview(body, columns=cols, show="tree headings",
+                                 selectmode="none", height=len(core_mod.CORES))
+        self.tree.heading("#0", text="Core")
+        self.tree.heading("card", text="On the card")
+        self.tree.heading("avail", text="Available")
+        self.tree.column("#0", width=210, stretch=False)
+        self.tree.column("card", width=150, stretch=False, anchor="center")
+        self.tree.column("avail", width=185, stretch=False, anchor="center")
+        self.tree.grid(row=2, column=0, sticky="ew")
+        # Same three meanings the cheat list gives these: unavailable, and
+        # worth drawing the eye to.
+        self.tree.tag_configure("dead", foreground="#999")
+        self.tree.tag_configure("behind", foreground="#0a6")
+        self.tree.bind("<Button-1>", self.toggle)
 
-        self.picks: list[tuple] = []
+        self.rows: dict[str, list] = {}
         behind = set()
         if survey and rels:
             behind = {c.id for c in core_mod.outdated(survey.versions, rels)}
 
-        for r, c in enumerate(core_mod.CORES, start=1):
+        for c in core_mod.CORES:
             have = survey.versions.get(c.id) if survey else None
             rel = core_mod.release_for(c, rels) if rels else None
             asset = core_mod.asset_for(c, rels) if rels else None
 
-            var = tk.BooleanVar(value=c.id in behind and asset is not None)
-            box = ttk.Checkbutton(table, variable=var)
-            box.grid(row=r, column=0, sticky="w")
-            if asset is None:
-                box.state(["disabled"])
-
-            ttk.Label(table, text=f"{c.title}").grid(
-                row=r, column=1, sticky="w", padx=(0, 14))
-            ttk.Label(table, text=have or "not installed",
-                      foreground="#000" if have else "#a00").grid(
-                row=r, column=2, sticky="w", padx=(0, 14))
-
-            # Why a row cannot be ticked, in the column that would otherwise be
-            # blank. "No release yet" is a different thing from "offline", and
+            # Why a row cannot be picked, in the column that would otherwise be
+            # blank. "No release yet" and "offline" are different things, and
             # the difference decides whether waiting will help.
             if asset is not None:
-                avail, colour = rel["tag"], "#000"
+                # The version, not the tag. The two columns exist to be
+                # compared, and "1.4.0-cheats.9" against "v1.4.0-cheats.9"
+                # reads as a difference when there is none.
+                avail = rel["version"]
             elif rels is None:
-                avail, colour = "release page unreachable", "#666"
+                avail = "offline"
             elif c.repo is None:
-                avail, colour = "not released yet", "#666"
+                avail = "not released yet"
             else:
-                avail, colour = "no release published yet", "#666"
-            ttk.Label(table, text=avail, foreground=colour).grid(
-                row=r, column=3, sticky="w")
+                avail = "no release yet"
 
-            self.picks.append((c, var, asset))
+            # Ticked by default when it is behind, because it is what the
+            # button used to do and what anyone opening this almost always
+            # wants. Never a core already at the released version: putting one
+            # back is a repair, so it is offered rather than assumed.
+            on = c.id in behind and asset is not None
+            tag = "dead" if asset is None else ("behind" if on else "")
+            self.tree.insert("", "end", iid=c.id,
+                             text=f"  {TICK if on else UNTICK}  {c.title}",
+                             values=(have or "not installed", avail),
+                             tags=(tag,) if tag else ())
+            self.rows[c.id] = [c, on, asset]
 
-        ttk.Label(body, foreground="#666", wraplength=460, justify="left", text=(
-            "Installing writes Cores/ and Platforms/ entries. Your ROMs, saves, "
-            "cheat files and boot ROMs are not touched.\n\n"
-            "Reinstalling a core already at the released version is offered on "
-            "purpose: one interrupted halfway through a copy reads as the right "
-            "version and does not run, and putting it back is the fix.\n\n"
-            "Eject the card from the main window afterwards, before pulling it "
-            "out."
-        )).grid(row=2, column=0, sticky="w", pady=(12, 0))
+        self.note = ttk.Label(body, foreground="#666", wraplength=560,
+                              justify="left", text="")
+        self.note.grid(row=3, column=0, sticky="w", pady=(10, 0))
 
         row = ttk.Frame(body)
-        row.grid(row=3, column=0, sticky="e", pady=(12, 0))
+        row.grid(row=4, column=0, sticky="e", pady=(14, 0))
         ttk.Button(row, text="Close", command=self.destroy).pack(
             side="right", padx=(6, 0))
         self.go = ttk.Button(row, text="Install", command=self.ok)
         self.go.pack(side="right")
+
+        # After the button exists: the note says what Install would do and
+        # turns it off when that is nothing, so it cannot run before there is
+        # a button to turn off.
+        self.retune_note()
 
         self.bind("<Escape>", lambda _e: self.destroy())
         self.go.focus_set()
         self.grab_set()
         self.wait_window(self)
 
-    def ok(self) -> None:
-        chosen = [c for c, var, asset in self.picks
-                  if var.get() and asset is not None]
-        if not chosen:
+    # ------------------------------------------------------------- behaviour --
+    def chosen(self) -> list:
+        return [c for c, on, asset in self.rows.values() if on and asset]
+
+    def toggle(self, event) -> None:
+        """Click handler: work out which row was hit, then act on it."""
+        iid = self.tree.identify_row(event.y)
+        if iid:
+            self.toggle_row(iid)
+
+    def toggle_row(self, iid: str) -> None:
+        row = self.rows[iid]
+        c, on, asset = row
+        if asset is None:
+            self.note.config(foreground="#a00", text=(
+                f"There is nothing to install for {c.title} yet. "
+                f"{self.tree.set(iid, 'avail').capitalize()}."))
             return
-        self.result = chosen
+        row[1] = on = not on
+        self.tree.item(iid, text=f"  {TICK if on else UNTICK}  {c.title}",
+                       tags=("behind",) if on else ())
+        self.retune_note()
+
+    def retune_note(self) -> None:
+        """One line about what pressing Install would do, not a wall of text.
+
+        The paragraph this replaced said the same three things whatever was on
+        screen, so it was read once and then never again.
+        """
+        picked = self.chosen()
+        self.go.state(["!disabled"] if picked else ["disabled"])
+        if not picked:
+            self.note.config(foreground="#666", text=(
+                "Nothing selected. Tick a core to install or reinstall it; "
+                "reinstalling is worth doing if one was interrupted mid-copy, "
+                "because it reads as the right version and does not run."))
+            return
+        names = ", ".join(f"Cores/{c.id}" for c in picked)
+        self.note.config(foreground="#666", text=(
+            f"Install writes {names} and the platform entries that go with "
+            "them. Your ROMs, saves, cheat files and boot ROMs are not "
+            "touched. Eject the card from the main window afterwards, before "
+            "pulling it out."))
+
+    def ok(self) -> None:
+        picked = self.chosen()
+        if not picked:
+            return
+        self.result = picked
         self.destroy()
 
 

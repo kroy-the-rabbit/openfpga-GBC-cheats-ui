@@ -100,7 +100,7 @@ an archive is refused outright if any path in it would land outside the card or
 if it does not hold the core it claims to.
 
 The second line is the boot ROMs. The core loads one before it starts a game
-and will not run without it, and those are Nintendo's code: not in the core,
+and will not run without it, and those are copyrighted: not in the core,
 not in this app, and never fetched by it. What the app does is name the file,
 its size and the folder it goes in, which is `Assets/<platform>/common/`. A
 file of the wrong size is reported separately from a missing one, because that

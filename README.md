@@ -85,7 +85,7 @@ the fix, so reinstalling stays available without being suggested.
 ### Boot ROMs
 
 The core loads a boot ROM before it starts a game and will not run without one.
-Those are Nintendo's code: they are not in the core, they are not in this app,
+Those are copyrighted: they are not in the core, they are not in this app,
 and this app will not fetch them. What it will do is tell you which of them
 your card is missing, on the second line of the core bar, with **Boot ROMs...**
 for the whole list and where each one goes:
