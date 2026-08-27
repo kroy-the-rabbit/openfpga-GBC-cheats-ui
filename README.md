@@ -60,18 +60,27 @@ Pocket core: kroy.GBC 1.4.0-cheats.8  update available: 1.4.0-cheats.9 (kroy.GBC
 Pocket core: not installed. Nothing written here has any effect until it is.
 ```
 
-**Install core** fetches the current release and unpacks it onto the card. It
-writes `Cores/kroy.GBC`, `Cores/kroy.GB` and the two platform entries that go
-with them, and nothing else: your ROMs, saves, cheat files and boot ROMs are
+**Cores...** opens a list of every core this app writes for, with the version
+on the card beside the version available, and a tick box per core. What is
+behind is ticked for you; everything else is yours to choose.
+
+A row you cannot tick says why in the column that would otherwise be blank, and
+the three reasons are different things: *no release published yet* is a core
+whose repository is real and has not been tagged, *not released yet* is one
+with no repository at all, and *release page unreachable* is you being offline.
+Only the last one is fixed by trying again.
+
+Installing writes `Cores/<id>` and the platform entries that go with the cores
+you picked, and nothing else: your ROMs, saves, cheat files and boot ROMs are
 not touched, and an archive naming a path outside the card is refused rather
 than unpacked. Each core is downloaded whole, checked, and staged on the card
 before any of it is moved into place, so an install that fails or is stopped
 leaves the core you already had exactly as it was. **Eject** afterwards, before
 you pull the card out.
 
-On a card that is already current the button says **Reinstall**. A core copied
+A core already at the released version is offered but not ticked. One copied
 half way reads as the right version and does not run, and putting it back is
-the fix.
+the fix, so reinstalling stays available without being suggested.
 
 ### Boot ROMs
 

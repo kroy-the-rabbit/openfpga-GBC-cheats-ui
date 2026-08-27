@@ -42,6 +42,11 @@ RELEASED = tuple(c for c in core.CORES if c.repo)
 RELEASED_IDS = [c.id for c in RELEASED]
 
 
+def at(version: str | None) -> dict:
+    """Versions for a card carrying every releasable core at one version."""
+    return {c.id: version for c in RELEASED}
+
+
 def releases(version: str, repos=None, assets=True) -> dict:
     """A newest-release-per-repository map, the shape the app carries around."""
     out = {}
@@ -216,7 +221,7 @@ class Versions(unittest.TestCase):
 
     def test_only_the_core_that_differs_is_listed(self) -> None:
         rels = releases("2.0")
-        have = {GBC.id: "1.0", GB.id: "2.0"}
+        have = at("2.0") | {GBC.id: "1.0"}
         self.assertEqual([c.id for c in core.outdated(have, rels)], [GBC.id])
 
     def test_a_release_with_no_zip_for_a_core_cannot_update_it(self) -> None:
@@ -232,20 +237,26 @@ class Versions(unittest.TestCase):
 class Unreleased(unittest.TestCase):
     """A core with nothing published to install.
 
-    PC Engine and Game Boy Advance are both in CORES so that a hand-built copy
-    on a card is reported, and neither must ever be offered for install: there
-    is nothing to install, and an Install button that 404s is worse than one
-    that does not appear.
+    Two different shapes of it, and the difference is the point. The PC Engine
+    has no repository at all. Game Boy Advance has one, and CI that publishes on
+    a tag, and no tag yet. Neither must ever be offered for install - an Install
+    button that 404s is worse than one that does not appear - but only the
+    second starts working on its own.
     """
 
-    def test_it_has_no_repository(self) -> None:
+    def test_the_pc_engine_has_no_repository(self) -> None:
         self.assertIsNone(PCE.repo)
-        self.assertIsNone(GBA.repo)
 
-    def test_it_is_never_outdated(self) -> None:
-        stale = core.outdated(every(None), releases("2.0"))
-        self.assertNotIn(PCE, stale)
-        self.assertNotIn(GBA, stale)
+    def test_game_boy_advance_has_one_with_nothing_at_it(self) -> None:
+        self.assertIsNotNone(GBA.repo)
+        # No release in the map means nothing to install, repository or not.
+        self.assertFalse(core.released("gba", releases("2.0", repos=[])))
+        self.assertNotIn(GBA, core.outdated(every(None),
+                                            releases("2.0", repos=[])))
+
+    def test_it_is_never_outdated_without_a_release(self) -> None:
+        empty = releases("2.0", repos=[])
+        self.assertEqual(core.outdated(every(None), empty), [])
 
     def test_it_contributes_no_repository_to_fetch(self) -> None:
         self.assertNotIn(None, core.repos())
@@ -254,10 +265,19 @@ class Unreleased(unittest.TestCase):
         self.assertNotIn(PCE.repo, core.repos())
 
     def test_its_platform_reads_as_unreleased(self) -> None:
+        # Asked with the release map, which is the answer that matters: it is
+        # what decides whether the app tells you nothing will read your file.
+        rels = releases("2.0", repos=[GBC.repo])
+        self.assertTrue(core.released("gbc", rels))
+        self.assertTrue(core.released("gb", rels))
+        self.assertFalse(core.released("pce", rels))
+        self.assertFalse(core.released("gba", rels))
+
+    def test_without_the_map_it_falls_back_to_having_a_repository(self) -> None:
+        # Before the release check answers there is nothing better to say, and
+        # a core with no repository at all is still definitely unreleased.
         self.assertTrue(core.released("gbc"))
-        self.assertTrue(core.released("gb"))
         self.assertFalse(core.released("pce"))
-        self.assertFalse(core.released("gba"))
 
     def test_an_installed_copy_is_still_reported(self) -> None:
         with tempfile.TemporaryDirectory() as root:
@@ -269,7 +289,7 @@ class Unreleased(unittest.TestCase):
 
     def test_a_card_with_only_it_is_still_up_to_date_about_the_rest(self) -> None:
         # Its absence from the release map must not read as "out of date".
-        have = {GBC.id: "2.0", GB.id: "2.0", PCE.id: None}
+        have = at("2.0") | {PCE.id: None}
         self.assertEqual(core.outdated(have, releases("2.0")), [])
 
 
@@ -400,11 +420,12 @@ class InstallEnd(Env):
         core._fetch = fake
         self.addCleanup(lambda: setattr(core, "_fetch", self.real))
 
-    def test_a_bare_card_gets_both_cores(self) -> None:
+    def test_a_bare_card_gets_every_core_that_has_a_release(self) -> None:
         rels = releases("1.0")
         core.install(self.root, rels)
         self.assertEqual(core.installed(self.root),
-                         have(kroy_GBC="1.0", kroy_GB="1.0"))
+                         have(**{c.id.replace(".", "_"): "1.0"
+                                 for c in RELEASED}))
 
     def test_nothing_to_do_writes_nothing(self) -> None:
         rels = releases("1.0")

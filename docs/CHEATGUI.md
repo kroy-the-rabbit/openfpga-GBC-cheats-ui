@@ -72,7 +72,18 @@ and opening every one of those to find two costs seconds over USB. That read
 is the first step of the card-reading pass, so it happens behind the same modal
 as everything else rather than adding a freeze of its own.
 
-**Install core** fetches the newest release and unpacks it onto the card. Each
+**Cores...** opens a dialog rather than acting. It was a button that decided
+what to install and a yes/no box that confirmed the decision, which held while
+there was one repository and two cores that always shipped together. There are
+four cores now, from three repositories, released at different times and at
+different versions, and one with no release at all, so "install the core"
+stopped being one question with one answer. The dialog shows a row per core -
+what the card has, what is available, and whether it can be installed at all -
+and hands back exactly what was ticked. A row that cannot be ticked says which
+kind of nothing it is: no tag on a real repository, no repository yet, or no
+network.
+
+Installing fetches those releases and unpacks them onto the card. Each
 zip is downloaded whole, checked, and extracted into a staging directory on the
 card, and only then moved into place: the core's own directory is swapped whole
 because a core is its `.rbf_r` and its json files together, and `Platforms/` is

@@ -31,7 +31,9 @@ see which version you have and whether upstream has a newer one.
 
 Above it is the **Pocket core** bar, which is the one that decides whether any
 of this has an effect at all. A stock Pocket core ignores cheat files, so with
-the card in, press **Install core** and the current release goes onto it. The
+the card in, press **Cores...**, which lists every core this app writes for
+with what your card has beside what is available. Anything out of date is
+ticked already; press Install. The
 second line of that bar names any boot ROM the core needs and your card does
 not have; those are Nintendo's code and you have to supply them yourself, but
 the app says exactly which file and which folder. **Eject** when you are done.

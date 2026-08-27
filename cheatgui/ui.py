@@ -200,7 +200,7 @@ class App(ttk.Frame):
         self.bios_btn = ttk.Button(bar, text="Boot ROMs...", width=13,
                                    command=self.show_roms, state="disabled")
         self.bios_btn.grid(row=0, column=2, padx=(6, 0))
-        self.core_btn = ttk.Button(bar, text="Install core", width=13,
+        self.core_btn = ttk.Button(bar, text="Cores...", width=13,
                                    command=self.install_core, state="disabled")
         self.core_btn.grid(row=0, column=3, padx=(4, 0))
         self.bios_label = ttk.Label(bar, text="", foreground="#666")
@@ -504,27 +504,13 @@ class App(ttk.Frame):
 
         if self.corejob_kind == "install":
             return
-        if self.survey is None or not self.releases:
-            self.core_btn.config(text="Install core")
-            self.core_btn.state(["disabled"])
-            return
-        behind = core_mod.outdated(self.survey.versions, self.releases)
-        # Reinstall stays available on a current card on purpose: a core that
-        # was interrupted mid-copy reads as the right version and does not run,
-        # and putting it back is the fix.
-        self.core_btn.config(text="Install core" if behind else "Reinstall")
-        self.core_btn.state(["!disabled"])
-
-    def installable(self) -> list:
-        """The cores there is actually a release to install. Never empty-ish.
-
-        A core with no release yet, which is PC Engine today, is not in here:
-        Reinstall must not offer to fetch something that does not exist.
-        """
-        if not self.releases:
-            return []
-        return [c for c in core_mod.CORES
-                if core_mod.asset_for(c, self.releases) is not None]
+        # Enabled whenever there is a card to talk about, including offline
+        # and including when everything is current. The dialog behind it is
+        # worth opening to see what is installed, and a button that is disabled
+        # without saying why was the old version's worst habit.
+        self.core_btn.config(text="Cores...")
+        self.core_btn.state(["disabled"] if self.survey is None
+                            else ["!disabled"])
 
     def install_core(self) -> None:
         """Put the current release on the card, once the user has said so."""
@@ -536,27 +522,18 @@ class App(ttk.Frame):
             self.status.config(text="still checking the release, try again in "
                                     "a moment", foreground="#000")
             return
-        if self.card is None or self.survey is None or not self.releases:
+        if self.card is None or self.survey is None:
+            return
+
+        # The dialog is the confirmation. It shows what is on the card against
+        # what is available, per core, and hands back exactly what was ticked -
+        # which is the part the old yes/no box could not do, because it was
+        # confirming a decision this method had already made.
+        todo = CoresDialog(self, self.survey, self.releases).result
+        if not todo:
             return
 
         rels = self.releases
-        todo = core_mod.outdated(self.survey.versions, rels) or self.installable()
-        if not todo:
-            return
-        names = "\n".join(
-            f"    Cores/{c.id}    {c.title}    "
-            f"{core_mod.release_for(c, rels)['tag']}" for c in todo)
-        tags = sorted({core_mod.release_for(c, rels)["tag"] for c in todo})
-        if not messagebox.askokcancel(
-                "Install the Pocket core",
-                f"Install {', '.join(tags)} onto {self.card.root}?",
-                detail=f"This writes:\n\n{names}\n\n"
-                       "and the platform entries that go with them. Your ROMs, "
-                       "saves, cheat files and boot ROMs are not touched.\n\n"
-                       "Eject the card from this window afterwards, before you "
-                       "pull it out."):
-            return
-
         root = self.card.root
 
         def body(report, cancelled):
@@ -586,7 +563,7 @@ class App(ttk.Frame):
     def _core_done(self, result, err) -> None:
         self.corejob_kind = ""
         self.core_bar.grid_remove()
-        self.core_btn.config(text="Install core")
+        self.core_btn.config(text="Cores...")
         self.rescan_btn.state(["!disabled"])
         if self.card is not None:
             self.eject_btn.state(["!disabled"])
@@ -1106,7 +1083,7 @@ class App(ttk.Frame):
             msg += f" ({written} written, {patched} patched)"
         if not cheatfile.decoded(v.platform):
             msg += "   codes carried as written; nothing reads them yet"
-        elif not core_mod.released(v.platform):
+        elif not core_mod.released(v.platform, self.releases):
             # Readable codes and a correct file, and still nothing on the
             # handheld that will act on it. Worth saying, since everything
             # else on screen looks exactly like a system that works.
@@ -1326,6 +1303,116 @@ class CartDialog(tk.Toplevel):
             self.entry.focus_set()
             return
         self.result = (name, self.platform.get())
+        self.destroy()
+
+
+class CoresDialog(tk.Toplevel):
+    """Every core this app writes for, what the card has, and what to install.
+
+    This was a single "Install core" button and a yes/no box listing whatever
+    the app had decided to write. That worked while there was one repository
+    and two cores that always shipped together. There are four cores now, from
+    three repositories, released at different times and at different versions,
+    and one of them has no release at all - so "install the core" stopped being
+    one question with one answer.
+
+    A row per core, and the row says the two things that decide what to do: the
+    version on the card, and the version available. A core with nothing to
+    install cannot be ticked and says why, which is the case the old button
+    could only express by being disabled for reasons it did not explain.
+    """
+
+    # Selected by default, because it is what the button used to do and what
+    # anyone opening this almost always wants. Never a core that is already at
+    # the released version: reinstalling one is a repair, not a routine, so it
+    # is offered and not assumed.
+    def __init__(self, app, survey, rels: dict | None) -> None:
+        super().__init__(app)
+        self.result: list | None = None
+        self.title("Pocket cores")
+        self.transient(app)
+        self.resizable(False, False)
+        self.columnconfigure(0, weight=1)
+
+        body = ttk.Frame(self, padding=10)
+        body.grid(row=0, column=0, sticky="nsew")
+        body.columnconfigure(0, weight=1)
+
+        where = survey.root if survey else "no card"
+        ttk.Label(body, text=f"Card: {where}").grid(row=0, column=0, sticky="w")
+
+        table = ttk.Frame(body)
+        table.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        for i, heading in enumerate(("", "Core", "On the card", "Available")):
+            ttk.Label(table, text=heading, foreground="#666").grid(
+                row=0, column=i, sticky="w", padx=(0, 14))
+
+        self.picks: list[tuple] = []
+        behind = set()
+        if survey and rels:
+            behind = {c.id for c in core_mod.outdated(survey.versions, rels)}
+
+        for r, c in enumerate(core_mod.CORES, start=1):
+            have = survey.versions.get(c.id) if survey else None
+            rel = core_mod.release_for(c, rels) if rels else None
+            asset = core_mod.asset_for(c, rels) if rels else None
+
+            var = tk.BooleanVar(value=c.id in behind and asset is not None)
+            box = ttk.Checkbutton(table, variable=var)
+            box.grid(row=r, column=0, sticky="w")
+            if asset is None:
+                box.state(["disabled"])
+
+            ttk.Label(table, text=f"{c.title}").grid(
+                row=r, column=1, sticky="w", padx=(0, 14))
+            ttk.Label(table, text=have or "not installed",
+                      foreground="#000" if have else "#a00").grid(
+                row=r, column=2, sticky="w", padx=(0, 14))
+
+            # Why a row cannot be ticked, in the column that would otherwise be
+            # blank. "No release yet" is a different thing from "offline", and
+            # the difference decides whether waiting will help.
+            if asset is not None:
+                avail, colour = rel["tag"], "#000"
+            elif rels is None:
+                avail, colour = "release page unreachable", "#666"
+            elif c.repo is None:
+                avail, colour = "not released yet", "#666"
+            else:
+                avail, colour = "no release published yet", "#666"
+            ttk.Label(table, text=avail, foreground=colour).grid(
+                row=r, column=3, sticky="w")
+
+            self.picks.append((c, var, asset))
+
+        ttk.Label(body, foreground="#666", wraplength=460, justify="left", text=(
+            "Installing writes Cores/ and Platforms/ entries. Your ROMs, saves, "
+            "cheat files and boot ROMs are not touched.\n\n"
+            "Reinstalling a core already at the released version is offered on "
+            "purpose: one interrupted halfway through a copy reads as the right "
+            "version and does not run, and putting it back is the fix.\n\n"
+            "Eject the card from the main window afterwards, before pulling it "
+            "out."
+        )).grid(row=2, column=0, sticky="w", pady=(12, 0))
+
+        row = ttk.Frame(body)
+        row.grid(row=3, column=0, sticky="e", pady=(12, 0))
+        ttk.Button(row, text="Close", command=self.destroy).pack(
+            side="right", padx=(6, 0))
+        self.go = ttk.Button(row, text="Install", command=self.ok)
+        self.go.pack(side="right")
+
+        self.bind("<Escape>", lambda _e: self.destroy())
+        self.go.focus_set()
+        self.grab_set()
+        self.wait_window(self)
+
+    def ok(self) -> None:
+        chosen = [c for c, var, asset in self.picks
+                  if var.get() and asset is not None]
+        if not chosen:
+            return
+        self.result = chosen
         self.destroy()
 
 

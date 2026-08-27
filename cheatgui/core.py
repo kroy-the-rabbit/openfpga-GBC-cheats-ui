@@ -85,6 +85,7 @@ class Core:
 
 
 GBC_REPO = "kroy-the-rabbit/openfpga-GBC-cheats"
+GBA_REPO = "kroy-the-rabbit/openfpga-GBA-cheats"
 
 # The cores this app writes cheat files for.
 #
@@ -107,11 +108,12 @@ CORES = (
     Core("kroy.GB", "gb", "Game Boy", "kroy.GB_", GBC_REPO,
          (Rom("gb_bios.bin", 256, "DMG BIOS"),
           Rom("sgb_boot.bin", 256, "SGB BIOS"))),
-    # Built, not released, so repo is None for the same reason the PC Engine's
-    # is: kroy-the-rabbit/openfpga-GBA-cheats exists but has nothing published
-    # at it, and an Install button that 404s is worse than one that does not
-    # appear. Set the repository when there is a release behind it.
-    Core("kroy.GBA", "gba", "Game Boy Advance", "kroy.GBA_", None,
+    # The repository is real and its CI publishes on a tag; it just has no
+    # release yet. That is not the same as the PC Engine's repo=None, and the
+    # difference is why released() asks the release map rather than this field:
+    # nothing is offered for install until there is something at the other end,
+    # and the moment a tag lands it appears with no change here.
+    Core("kroy.GBA", "gba", "Game Boy Advance", "kroy.GBA_", GBA_REPO,
          (Rom("gba_bios.bin", 16384, "GBA BIOS"),)),
     # Upstream ships as "agg23.PC Engine", with a space in the directory name.
     # The fork renames to kroy.PCE, to match the others and so nothing here has
@@ -134,14 +136,24 @@ def releases_page(repo: str) -> str:
     return f"https://github.com/{repo}/releases"
 
 
-def released(platform: str) -> bool:
+def released(platform: str, rels: dict[str, dict] | None = None) -> bool:
     """Whether anything on this system has a core you can actually install.
 
-    False for Game Boy Advance, which has no core here at all, and for PC
-    Engine, whose core is being built. Cheat files can be prepared for both;
-    nothing on the handheld reads them yet.
+    The question a caller is really asking is "will anything on the handheld
+    act on the file I just wrote", so a repository with nothing published at it
+    counts as no. Game Boy Advance is exactly that case: its repo exists and its
+    CI publishes on a tag, and until one is pushed there is no core to install.
+    The PC Engine has no repository at all yet. Both answer False, and both
+    start answering True on their own.
+
+    Without `rels` this can only fall back to whether a repository is named,
+    which is the best guess available before the release check has answered.
+    Pass the release map when you have it.
     """
-    return any(c.platform == platform and c.repo for c in CORES)
+    mine = [c for c in CORES if c.platform == platform]
+    if rels is None:
+        return any(c.repo for c in mine)
+    return any(release_for(c, rels) for c in mine)
 
 
 # ------------------------------------------------------------------ the card --
