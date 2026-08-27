@@ -107,7 +107,7 @@ correctly by a copy of the app that predates it.
 ## Get the picker
 
 Download a build from the
-[releases page](https://github.com/kroy-the-rabbit/openfpga-GBC-cheats-ui/releases),
+[releases page](https://github.com/kroy-the-rabbit/pocket-cheats-sync/releases),
 or run it from a checkout:
 
 ```sh

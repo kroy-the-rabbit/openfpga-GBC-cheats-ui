@@ -14,7 +14,7 @@
 > Please report whatever happens on macOS.
 
 One file per platform, on the
-[releases page](https://github.com/kroy-the-rabbit/openfpga-GBC-cheats-ui/releases).
+[releases page](https://github.com/kroy-the-rabbit/pocket-cheats-sync/releases).
 Nothing is installed and nothing is written outside your home directory: the
 app keeps its settings in `~/.config/pocket-cheats/` and its copy of the cheat
 database in `~/.local/share/pocket-cheats/`.
@@ -138,8 +138,8 @@ Useful on a platform with no build, on an older distribution, or to change
 something.
 
 ```sh
-git clone https://github.com/kroy-the-rabbit/openfpga-GBC-cheats-ui
-cd openfpga-GBC-cheats-ui
+git clone https://github.com/kroy-the-rabbit/pocket-cheats-sync
+cd pocket-cheats-sync
 make gui
 ```
 
